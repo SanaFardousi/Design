@@ -60,3 +60,4 @@ By combining robotics, machine learning, and sustainability, this robot offers a
 ![Raspberry Pi](https://img.shields.io/badge/Raspberry%20Pi-4B-C51A4A?logo=raspberrypi&logoColor=white)
 ![OpenCV](https://img.shields.io/badge/OpenCV-Computer%20Vision-5C3EE8?logo=opencv&logoColor=white)
 ![Jupyter](https://img.shields.io/badge/Jupyter-Notebook-F37626?logo=jupyter&logoColor=white)
+![LeRobot](https://img.shields.io/badge/LeRobot-HuggingFace-yellow?logo=huggingface&logoColor=white)
