@@ -1,4 +1,4 @@
-## **Lame3: The Autonomous Beach Cleaning Robot!**
+## **Mr.Nadhif: The Autonomous Beach Cleaning Robot!**
 
 This project introduces a smart, eco-friendly, beach-loving robot designed to keep Kuwait’s shores clean — all **by itself**! 🤖✨
 
