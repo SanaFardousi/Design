@@ -174,3 +174,8 @@
 .nav-label {
   font-size: 11px;
 }
+/* Fix SVG alignment */
+.nav-icon svg,
+.settings-button svg {
+  display: block;
+}
