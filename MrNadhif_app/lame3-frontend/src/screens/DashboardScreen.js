@@ -161,11 +161,11 @@ function DashboardScreen() {
           <div className="nav-icon">📊</div>
           <div className="nav-label">Reports</div>
         </div>
-        <div className="nav-item">
+        <div className="nav-item" onClick={() => navigate('/robot-control')}>
           <div className="nav-icon">🎮</div>
           <div className="nav-label">Robot Control</div>
         </div>
-        <div className="nav-item">
+        <div className="nav-item" onClick={() => navigate('/valuables')}>
           <div className="nav-icon">🔍</div>
           <div className="nav-label">Lost & Found</div>
         </div>
