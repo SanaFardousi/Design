@@ -229,6 +229,14 @@ function DashboardScreen() {
           </div>
           <div className="nav-label">Reports</div>
         </div>
+<<<<<<< HEAD:MrNadhif_app/lame3-frontend/src/screens/DashboardScreen.js
+        <div className="nav-item" onClick={() => navigate('/robot-control')}>
+          <div className="nav-icon">🎮</div>
+          <div className="nav-label">Robot Control</div>
+        </div>
+        <div className="nav-item" onClick={() => navigate('/valuables')}>
+          <div className="nav-icon">🔍</div>
+=======
 
         <div className="nav-item">
           <div className="nav-icon">
@@ -241,6 +249,7 @@ function DashboardScreen() {
           <div className="nav-icon">
             <Search size={22} />
           </div>
+>>>>>>> origin/main:MrNadhif_app/MrNadhif-frontend/src/screens/DashboardScreen.js
           <div className="nav-label">Lost & Found</div>
         </div>
 
