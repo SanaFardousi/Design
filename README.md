@@ -19,7 +19,6 @@ This project introduces a smart, eco-friendly, beach-loving robot designed to ke
   
   🔹 Valuable Items
   🔹 Plastic
-  🔹 Paper
   🔹 Metal
   🔹 General Waste
 
