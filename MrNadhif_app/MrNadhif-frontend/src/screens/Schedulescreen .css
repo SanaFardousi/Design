@@ -183,3 +183,17 @@
 .nav-item.active { color: white; }
 .nav-icon { font-size: 24px; margin-bottom: 5px; }
 .nav-label { font-size: 11px; }
+
+/* Keeps Lucide SVG icons aligned (removes baseline spacing) */
+.sched-select-arrow svg,
+.nav-icon svg,
+.sched-saved-content svg {
+  display: block;
+}
+
+/* Optional: make "Saved!" icon + text sit nicely */
+.sched-saved-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}

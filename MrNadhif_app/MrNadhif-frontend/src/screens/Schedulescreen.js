@@ -1,9 +1,21 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import './Schedulescreen .css';
+import './Schedulescreen .css'; // (keeping your original path as-is)
+
+// Lucide SVG icons
+import {
+  Calendar,
+  CheckCircle2,
+  ChevronDown,
+  Home,
+  BarChart2,
+  Gamepad2,
+  Search,
+} from 'lucide-react';
 
 function ScheduleScreen() {
   const navigate = useNavigate();
+
   const [selectedDay, setSelectedDay] = useState(3); // Thu default
   const [beach, setBeach] = useState('');
   const [date, setDate] = useState('');
@@ -70,7 +82,10 @@ function ScheduleScreen() {
               <option key={i} value={b}>{b}</option>
             ))}
           </select>
-          <span className="sched-select-arrow">▼</span>
+
+          <span className="sched-select-arrow" aria-hidden="true">
+            <ChevronDown size={16} />
+          </span>
         </div>
       </div>
 
@@ -108,26 +123,44 @@ function ScheduleScreen() {
       {/* Save Button */}
       <div className="sched-save-wrapper">
         <button className={`sched-save-btn ${saved ? 'sched-saved' : ''}`} onClick={handleSave}>
-          {saved ? '✅ Saved!' : 'Save'}
+          {saved ? (
+            <span className="sched-saved-content">
+              <CheckCircle2 size={18} />
+              <span>Saved!</span>
+            </span>
+          ) : (
+            'Save'
+          )}
         </button>
       </div>
 
       {/* Bottom Navigation */}
       <div className="bottom-nav">
         <div className="nav-item" onClick={() => navigate('/dashboard')}>
-          <div className="nav-icon">🏠</div>
+          <div className="nav-icon" aria-hidden="true">
+            <Home size={22} />
+          </div>
           <div className="nav-label">Home</div>
         </div>
+
         <div className="nav-item" onClick={() => navigate('/reports')}>
-          <div className="nav-icon">📊</div>
+          <div className="nav-icon" aria-hidden="true">
+            <BarChart2 size={22} />
+          </div>
           <div className="nav-label">Reports</div>
         </div>
+
         <div className="nav-item active" onClick={() => navigate('/robot-control')}>
-          <div className="nav-icon">🎮</div>
+          <div className="nav-icon" aria-hidden="true">
+            <Gamepad2 size={22} />
+          </div>
           <div className="nav-label">Robot Control</div>
         </div>
+
         <div className="nav-item" onClick={() => navigate('/valuables')}>
-          <div className="nav-icon">🔍</div>
+          <div className="nav-icon" aria-hidden="true">
+            <Search size={22} />
+          </div>
           <div className="nav-label">Lost & Found</div>
         </div>
       </div>

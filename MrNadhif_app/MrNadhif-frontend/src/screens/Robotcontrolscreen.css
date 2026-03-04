@@ -203,3 +203,13 @@
 .nav-item.active { color: white; }
 .nav-icon { font-size: 24px; margin-bottom: 5px; }
 .nav-label { font-size: 11px; }
+
+/* Keep Lucide SVG icons aligned (removes baseline spacing) */
+.rc-settings-btn svg,
+.rc-map-pin svg,
+.rc-btn-icon svg,
+.rc-schedule-btn svg,
+.nav-icon svg,
+.rc-status-badge svg {
+  display: block;
+}

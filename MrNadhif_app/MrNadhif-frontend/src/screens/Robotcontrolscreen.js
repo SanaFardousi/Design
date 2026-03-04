@@ -2,10 +2,29 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Robotcontrolscreen.css';
 
+// Import Lucide SVG icons to replace emojis/symbols
+import {
+  Settings,
+  MapPin,
+  Circle,
+  Play,
+  Pause,
+  Square,
+  Calendar,
+  Home,
+  BarChart2,
+  Gamepad2,
+  Search,
+  AlertTriangle,
+} from 'lucide-react';
+
 function RobotControlScreen() {
   const navigate = useNavigate();
-  const [robotStatus, setRobotStatus] = useState('idle'); // idle, running, paused
 
+  // robotStatus can be: "idle", "running", or "paused"
+  const [robotStatus, setRobotStatus] = useState('idle');
+
+  // Control handlers update the robotStatus state
   const handleStart = () => setRobotStatus('running');
   const handlePause = () => setRobotStatus('paused');
   const handleStop = () => setRobotStatus('idle');
@@ -15,17 +34,29 @@ function RobotControlScreen() {
       {/* Header */}
       <div className="rc-header">
         <div className="rc-header-title">Robot Control</div>
-        <button className="rc-settings-btn">⚙️</button>
+
+        {/* Settings icon */}
+        <button className="rc-settings-btn" aria-label="Settings">
+          <Settings size={20} />
+        </button>
       </div>
 
       {/* Map Area */}
       <div className="rc-map">
         <div className="rc-map-placeholder">
-          <div className="rc-map-pin">📍</div>
+          {/*Map pin icon  */}
+          <div className="rc-map-pin" aria-hidden="true">
+            <MapPin size={22} />
+          </div>
+
           <div className="rc-map-label">Fintas Beach — Kuwait</div>
+
+          {/* Show the robot dot only while running */}
           {robotStatus === 'running' && (
-            <div className="rc-robot-dot">
+            <div className="rc-robot-dot" aria-hidden="true">
               <div className="rc-robot-pulse"></div>
+
+
             </div>
           )}
         </div>
@@ -33,9 +64,24 @@ function RobotControlScreen() {
 
       {/* Status Badge */}
       <div className={`rc-status-badge rc-status-${robotStatus}`}>
-        {robotStatus === 'idle' && '⬛ Robot Idle'}
-        {robotStatus === 'running' && '🟢 Robot Running'}
-        {robotStatus === 'paused' && '🟡 Robot Paused'}
+        
+        {robotStatus === 'idle' && (
+          <>
+            <Square size={16} /> <span>Robot Idle</span>
+          </>
+        )}
+
+        {robotStatus === 'running' && (
+          <>
+            <Circle size={16} /> <span>Robot Running</span>
+          </>
+        )}
+
+        {robotStatus === 'paused' && (
+          <>
+            <Pause size={16} /> <span>Robot Paused</span>
+          </>
+        )}
       </div>
 
       {/* Control Buttons */}
@@ -45,7 +91,9 @@ function RobotControlScreen() {
           onClick={handleStart}
           disabled={robotStatus === 'running'}
         >
-          <span className="rc-btn-icon">▶</span>
+          <span className="rc-btn-icon" aria-hidden="true">
+            <Play size={18} />
+          </span>
           <span className="rc-btn-label">Start</span>
         </button>
 
@@ -54,7 +102,10 @@ function RobotControlScreen() {
           onClick={handlePause}
           disabled={robotStatus !== 'running'}
         >
-          <span className="rc-btn-icon">⏸</span>
+          {/* Pause icon */}
+          <span className="rc-btn-icon" aria-hidden="true">
+            <Pause size={18} />
+          </span>
           <span className="rc-btn-label">Pause</span>
         </button>
 
@@ -63,7 +114,10 @@ function RobotControlScreen() {
           onClick={handleStop}
           disabled={robotStatus === 'idle'}
         >
-          <span className="rc-btn-icon">⏹</span>
+          {/* Stop icon */}
+          <span className="rc-btn-icon" aria-hidden="true">
+            <Square size={18} />
+          </span>
           <span className="rc-btn-label">Emergency Stop</span>
         </button>
       </div>
@@ -71,26 +125,38 @@ function RobotControlScreen() {
       {/* Schedule Button */}
       <div className="rc-schedule-wrapper">
         <button className="rc-schedule-btn" onClick={() => navigate('/schedule')}>
-          📅 Schedule
+          {/* Calendar icon */}
+          <Calendar size={18} /> <span>Schedule</span>
         </button>
       </div>
 
       {/* Bottom Navigation */}
       <div className="bottom-nav">
         <div className="nav-item" onClick={() => navigate('/dashboard')}>
-          <div className="nav-icon">🏠</div>
+          <div className="nav-icon" aria-hidden="true">
+            <Home size={22} />
+          </div>
           <div className="nav-label">Home</div>
         </div>
+
         <div className="nav-item" onClick={() => navigate('/reports')}>
-          <div className="nav-icon">📊</div>
+          <div className="nav-icon" aria-hidden="true">
+            <BarChart2 size={22} />
+          </div>
           <div className="nav-label">Reports</div>
         </div>
+
         <div className="nav-item active">
-          <div className="nav-icon">🎮</div>
+          <div className="nav-icon" aria-hidden="true">
+            <Gamepad2 size={22} />
+          </div>
           <div className="nav-label">Robot Control</div>
         </div>
+
         <div className="nav-item" onClick={() => navigate('/valuables')}>
-          <div className="nav-icon">🔍</div>
+          <div className="nav-icon" aria-hidden="true">
+            <Search size={22} />
+          </div>
           <div className="nav-label">Lost & Found</div>
         </div>
       </div>

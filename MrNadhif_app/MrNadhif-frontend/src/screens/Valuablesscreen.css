@@ -147,3 +147,11 @@
 .nav-item.active { color: white; }
 .nav-icon { font-size: 24px; margin-bottom: 5px; }
 .nav-label { font-size: 11px; }
+
+/* Align SVG icons properly */
+.val-settings-btn svg,
+.val-search-icon svg,
+.val-img-icon svg,
+.nav-icon svg {
+  display: block;
+}

@@ -2,6 +2,18 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Valuablesscreen.css';
 
+// Import SVG icons from lucide-react for consistent UI across pages
+import {
+  Settings,
+  Search,
+  Gem,
+  Home,
+  BarChart2,
+  Gamepad2
+} from 'lucide-react';
+
+
+// Mock data representing valuable items found by the robot
 const MOCK_ITEMS = [
   { id: 1, date: 'Found Nov 20', location: 'Egaila', color: '#c8b89a' },
   { id: 2, date: 'Found Nov 10', location: 'Shuwaikh', color: '#d4c5a9' },
@@ -12,9 +24,17 @@ const MOCK_ITEMS = [
 ];
 
 function ValuablesScreen() {
+
+  // Used to navigate between pages
   const navigate = useNavigate();
+
+  // Search input state
   const [search, setSearch] = useState('');
 
+  /*
+    Filter items based on search input.
+    User can search by location OR date.
+  */
   const filtered = MOCK_ITEMS.filter(item =>
     item.location.toLowerCase().includes(search.toLowerCase()) ||
     item.date.toLowerCase().includes(search.toLowerCase())
@@ -22,15 +42,27 @@ function ValuablesScreen() {
 
   return (
     <div className="val-container">
-      {/* Header */}
+
       <div className="val-header">
+
+        {/* Page Title */}
         <div className="val-header-title">Valuables</div>
-        <button className="val-settings-btn">⚙️</button>
+
+        {/* Settings icon */}
+        <button className="val-settings-btn">
+          <Settings size={20} />
+        </button>
+
       </div>
 
-      {/* Search */}
+
       <div className="val-search-wrapper">
-        <span className="val-search-icon">🔍</span>
+
+        {/* Search icon*/}
+        <span className="val-search-icon">
+          <Search size={18} />
+        </span>
+
         <input
           className="val-search"
           placeholder="Search"
@@ -39,46 +71,76 @@ function ValuablesScreen() {
         />
       </div>
 
-      {/* Grid */}
+
       <div className="val-section">
+
         <div className="val-section-title">Valuable Items</div>
+
         <div className="val-grid">
+
+          {/* Render cards for filtered items */}
           {filtered.map(item => (
             <div className="val-card" key={item.id}>
+
+              {/* Image placeholder area */}
               <div
                 className="val-img"
                 style={{ background: `linear-gradient(135deg, ${item.color}, #a0916e)` }}
               >
-                <span className="val-img-icon">💎</span>
+
+                {/* Gem icon representing a valuable item */}
+                <span className="val-img-icon">
+                  <Gem size={20} />
+                </span>
+
               </div>
+
+              {/* Item metadata */}
               <div className="val-card-date">{item.date},</div>
               <div className="val-card-loc">{item.location}</div>
+
             </div>
           ))}
+
+          {/* Message when no items match search */}
           {filtered.length === 0 && (
             <div className="val-empty">No items found</div>
           )}
+
         </div>
       </div>
 
-      {/* Bottom Navigation */}
+
       <div className="bottom-nav">
+
         <div className="nav-item" onClick={() => navigate('/dashboard')}>
-          <div className="nav-icon">🏠</div>
+          <div className="nav-icon">
+            <Home size={22} />
+          </div>
           <div className="nav-label">Home</div>
         </div>
+
         <div className="nav-item" onClick={() => navigate('/reports')}>
-          <div className="nav-icon">📊</div>
+          <div className="nav-icon">
+            <BarChart2 size={22} />
+          </div>
           <div className="nav-label">Reports</div>
         </div>
+
         <div className="nav-item" onClick={() => navigate('/robot-control')}>
-          <div className="nav-icon">🎮</div>
+          <div className="nav-icon">
+            <Gamepad2 size={22} />
+          </div>
           <div className="nav-label">Robot Control</div>
         </div>
+
         <div className="nav-item active">
-          <div className="nav-icon">🔍</div>
+          <div className="nav-icon">
+            <Search size={22} />
+          </div>
           <div className="nav-label">Lost & Found</div>
         </div>
+
       </div>
     </div>
   );
