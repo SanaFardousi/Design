@@ -8,7 +8,6 @@ import { useNavigate } from 'react-router-dom';
 import './DashboardScreen.css';
 
 // Import clean SVG icons from lucide-react
-// These replace emojis for consistent design across devices
 import {
   Settings,
   Play,
@@ -31,11 +30,10 @@ function DashboardScreen() {
 
   /*
     useEffect runs once when the component loads.
-
     Purpose:
     - Check if the user is logged in.
-    - If not logged in → redirect to login page.
-    - If logged in → display their email.
+    - If not logged in, then redirect to login page.
+    - If logged in, then display their email.
   */
   useEffect(() => {
 
@@ -43,11 +41,11 @@ function DashboardScreen() {
     const isLoggedIn = localStorage.getItem('isLoggedIn');
     const email = localStorage.getItem('userEmail');
 
-    // If user is NOT logged in → redirect to login page
+    // If user is NOT logged in, then redirect to login page
     if (!isLoggedIn) {
       navigate('/');
     } else {
-      // If logged in → save email into state
+      // If logged in, then save email into state
       setUserEmail(email || '');
     }
 
@@ -58,6 +56,7 @@ function DashboardScreen() {
     - Removes login info from localStorage
     - Redirects back to login page
   */
+
   const handleLogout = () => {
     localStorage.removeItem('isLoggedIn');
     localStorage.removeItem('userEmail');
@@ -67,12 +66,12 @@ function DashboardScreen() {
   return (
     <div className="dashboard-container">
 
-      {/* ================= HEADER ================= */}
+      {/*HEADER*/}
       <div className="dashboard-header">
 
         {/* Dashboard title */}
         <div className="header-title">
-          Mr.nadhif Dashboard
+          Mr.Nadhif Dashboard
         </div>
 
         {/* Settings button with SVG icon */}
@@ -82,13 +81,13 @@ function DashboardScreen() {
       </div>
 
 
-      {/* ================= WELCOME BANNER ================= */}
+      {/*WELCOME BANNER */}
       <div className="welcome-banner">
         Welcome, {userEmail}!
       </div>
 
 
-      {/* ================= OPERATIONAL ALERTS ================= */}
+      {/*OPERATIONAL ALERTS*/}
       <div className="section">
         <h2 className="section-title">Operational Alerts</h2>
 
@@ -132,7 +131,7 @@ function DashboardScreen() {
       </div>
 
 
-      {/* ================= ACTIVITY LOG ================= */}
+      {/*ACTIVITY LOG*/}
       <div className="section">
         <h2 className="section-title">Robot Activity Log</h2>
 
@@ -177,7 +176,7 @@ function DashboardScreen() {
       </div>
 
 
-      {/* ================= STATUS OVERVIEW ================= */}
+      {/*STATUS OVERVIEW*/}
       <div className="section">
         <h2 className="section-title">Current Status Overview</h2>
 
@@ -189,8 +188,10 @@ function DashboardScreen() {
               Estimated 3 hours remaining
             </div>
           </div>
-          <div className="status-value">85%</div>
+          <div className="status-value">70%</div>
         </div>
+
+        
 
         {/* Plastic Bin */}
         <div className="status-item">
@@ -202,10 +203,32 @@ function DashboardScreen() {
           </div>
           <div className="status-value full">Full</div>
         </div>
+      
+      
+        {/* Metal Bin */}
+      <div className="status-item">
+        <div className="status-left">
+          <div className="status-label">Metal Bin</div>
+          <div className="status-sublabel">
+            Last emptied: 12:45 PM, Capacity: 5.0 L
+          </div>
+        </div>
+        <div className="status-value">Not Full</div>
       </div>
+    
+      {/* Valuables Bin */}
+      <div className="status-item">
+        <div className="status-left">
+          <div className="status-label">Valuables Bin</div>
+          <div className="status-sublabel">
+            Last emptied: 12:45 PM, Capacity: 2.0 L
+          </div>
+        </div>
+        <div className="status-value full">Full</div>
+      </div>
+    </div>
 
-
-      {/* ================= LOGOUT BUTTON ================= */}
+      {/*LOGOUT BUTTON*/}
       <div className="logout-container">
         <button onClick={handleLogout} className="logout-button">
           Logout
@@ -213,7 +236,7 @@ function DashboardScreen() {
       </div>
 
 
-      {/* ================= BOTTOM NAVIGATION ================= */}
+      {/*BOTTOM NAVIGATION*/}
       <div className="bottom-nav">
 
         <div className="nav-item active">
@@ -229,28 +252,19 @@ function DashboardScreen() {
           </div>
           <div className="nav-label">Reports</div>
         </div>
-<<<<<<< HEAD:MrNadhif_app/lame3-frontend/src/screens/DashboardScreen.js
-        <div className="nav-item" onClick={() => navigate('/robot-control')}>
-          <div className="nav-icon">🎮</div>
-          <div className="nav-label">Robot Control</div>
-        </div>
-        <div className="nav-item" onClick={() => navigate('/valuables')}>
-          <div className="nav-icon">🔍</div>
-=======
 
-        <div className="nav-item">
+        <div className="nav-item" onClick={() => navigate('/robot-control')}>
           <div className="nav-icon">
             <Gamepad2 size={22} />
           </div>
           <div className="nav-label">Robot Control</div>
         </div>
 
-        <div className="nav-item">
+        <div className="nav-item" onClick={() => navigate('/valuables')}>
           <div className="nav-icon">
             <Search size={22} />
           </div>
->>>>>>> origin/main:MrNadhif_app/MrNadhif-frontend/src/screens/DashboardScreen.js
-          <div className="nav-label">Lost & Found</div>
+          <div className="nav-label">Valuables</div>
         </div>
 
       </div>

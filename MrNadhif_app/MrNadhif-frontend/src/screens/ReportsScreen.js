@@ -1,4 +1,3 @@
-// ================= IMPORTS =================
 
 // Import React and hooks
 // useState -> stores component data
@@ -32,27 +31,18 @@ import {
 import './ReportsScreen.css';
 
 
-// ================= COMPONENT =================
-
 function ReportsScreen() {
 
   // Allows us to programmatically move between routes
   const navigate = useNavigate();
 
+  //STATE
 
-  // ================= STATE =================
 
-  /*
-    summaryData stores the numbers displayed
-    in the summary cards at the top.
-    
-    Currently this is example data.
-    Later, this will come from backend API.
-  */
   const [summaryData] = useState({
     valuables: 5,
     plastic: 45,
-    metal: 12,
+    metal: 40,
     other: 10
   });
 
@@ -73,21 +63,19 @@ function ReportsScreen() {
       { week: 'Week 4', count: 2 },
     ],
     plastic: [
-      { week: 'Week 1', count: 100 },
-      { week: 'Week 2', count: 70 },
-      { week: 'Week 3', count: 88 },
-      { week: 'Week 4', count: 90 },
+      { week: 'Week 1', count: 10 },
+      { week: 'Week 2', count: 10 },
+      { week: 'Week 3', count: 15 },
+      { week: 'Week 4', count: 10 },
     ],
     metal: [
-      { week: 'Week 1', count: 30 },
-      { week: 'Week 2', count: 90 },
-      { week: 'Week 3', count: 40 },
-      { week: 'Week 4', count: 50 },
+      { week: 'Week 1', count: 5 },
+      { week: 'Week 2', count: 10 },
+      { week: 'Week 3', count: 20 },
+      { week: 'Week 4', count: 5 },
     ],
   });
 
-
-  // ================= AUTH CHECK =================
 
   /*
     When page loads:
@@ -104,11 +92,8 @@ function ReportsScreen() {
   }, [navigate]);
 
 
-  // ================= CHART RENDER FUNCTION =================
-
   /*
-    This function builds a reusable chart component.
-
+    build a reusable chart component
     Parameters:
     - data -> weekly data array
     - color -> line color
@@ -189,7 +174,7 @@ function ReportsScreen() {
   };
 
 
-  // ================= UI =================
+  //UI
 
   return (
     <div className="reports-container">
@@ -200,7 +185,7 @@ function ReportsScreen() {
 
         {/* Settings icon (SVG instead of emoji) */}
         <button className="settings-button">
-          <Settings size={20} />
+          <Settings size={23} />
         </button>
       </div>
 
@@ -242,12 +227,6 @@ function ReportsScreen() {
       </div>
 
 
-      {/* DEVELOPMENT NOTE */}
-      <div className="dev-note">
-        Currently showing example data.
-        Real robot data will be loaded from backend API.
-      </div>
-
 
       {/* BOTTOM NAVIGATION (Using SVG icons) */}
       <div className="bottom-nav">
@@ -266,14 +245,14 @@ function ReportsScreen() {
           <div className="nav-label">Reports</div>
         </div>
 
-        <div className="nav-item">
+        <div className="nav-item" onClick={() => navigate('/robot-control')}>
           <div className="nav-icon">
             <Gamepad2 size={22} />
           </div>
           <div className="nav-label">Robot Control</div>
         </div>
 
-        <div className="nav-item">
+        <div className="nav-item" onClick={() => navigate('/valuables')}>
           <div className="nav-icon">
             <Search size={22} />
           </div>
