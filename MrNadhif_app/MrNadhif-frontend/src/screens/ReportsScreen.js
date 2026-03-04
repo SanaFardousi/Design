@@ -184,7 +184,7 @@ function ReportsScreen() {
         <div className="header-title">Reports</div>
 
         {/* Settings icon (SVG instead of emoji) */}
-        <button className="settings-button">
+        <button className="settings-button" onClick={() => navigate('/settings')}>
           <Settings size={23} />
         </button>
       </div>

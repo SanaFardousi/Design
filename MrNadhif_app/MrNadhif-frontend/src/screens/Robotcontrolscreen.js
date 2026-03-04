@@ -36,7 +36,7 @@ function RobotControlScreen() {
         <div className="rc-header-title">Robot Control</div>
 
         {/* Settings icon */}
-        <button className="rc-settings-btn" aria-label="Settings">
+        <button className="rc-settings-btn" aria-label="Settings" onClick={() => navigate('/settings')}>
           <Settings size={20} />
         </button>
       </div>

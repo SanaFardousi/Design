@@ -49,7 +49,7 @@ function ValuablesScreen() {
         <div className="val-header-title">Valuables</div>
 
         {/* Settings icon */}
-        <button className="val-settings-btn">
+        <button className="val-settings-btn" onClick={() => navigate('/settings')}>
           <Settings size={20} />
         </button>
 
@@ -96,8 +96,7 @@ function ValuablesScreen() {
               </div>
 
               {/* Item metadata */}
-              <div className="val-card-date">{item.date},</div>
-              <div className="val-card-loc">{item.location}</div>
+             <div className="val-card-date">{item.date}, <span className="val-card-loc">{item.location}</span></div>
 
             </div>
           ))}

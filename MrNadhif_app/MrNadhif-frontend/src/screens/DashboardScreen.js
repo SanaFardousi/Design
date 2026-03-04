@@ -75,7 +75,7 @@ function DashboardScreen() {
         </div>
 
         {/* Settings button with SVG icon */}
-        <button className="settings-button">
+        <button className="settings-button" onClick={() => navigate('/settings')}>
           <Settings size={20} />
         </button>
       </div>
