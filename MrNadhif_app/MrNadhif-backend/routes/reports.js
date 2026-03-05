@@ -14,8 +14,6 @@ router.get('/summary', async (req, res) => {
       valuables: 0,
       plastic: 0,
       metal: 0,
-      glass: 0,
-      paper: 0,
       other: 0
     };
 

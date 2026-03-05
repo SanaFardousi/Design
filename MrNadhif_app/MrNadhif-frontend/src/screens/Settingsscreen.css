@@ -138,3 +138,10 @@
 .nav-item.active { color: white; }
 .nav-icon { font-size: 24px; margin-bottom: 5px; }
 .nav-label { font-size: 11px; }
+
+/* Ensures lucide SVG icons align properly */
+.set-settings-btn svg,
+.set-arrow-btn svg,
+.nav-icon svg {
+  display: block;
+}

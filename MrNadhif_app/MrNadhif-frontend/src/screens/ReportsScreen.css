@@ -1,12 +1,12 @@
 .reports-container {
   min-height: 100vh;
-  background: #ffffff;
+  background: #fffefe;
   padding-bottom: 80px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
 }
 
 .reports-header {
-  background: rgb(255, 255, 255);
+  background: rgb(251, 251, 251);
   padding: 15px 20px;
   display: flex;
   justify-content: space-between;
@@ -24,7 +24,7 @@
 }
 
 .settings-button {
-  background: #e5e4e4;
+  background: #ffffff;
   border: none;
   width: 40px;
   height: 40px;
@@ -42,7 +42,7 @@
 }
 
 .summary-card {
-  background: rgb(255, 255, 255);
+  background: rgb(255, 226, 165);
   padding: 20px;
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.05);
@@ -89,7 +89,7 @@
 }
 
 .chart-container {
-  background: white;
+  background: rgb(252, 252, 252);
   padding: 20px;
   border-radius: 12px;
   margin-bottom: 15px;
@@ -127,18 +127,7 @@
   background: #FADBD8;
 }
 
-/* Dev Note */
-.dev-note {
-  background: #FFF9E6;
-  border: 2px solid #FFD700;
-  border-radius: 8px;
-  padding: 15px;
-  margin: 15px;
-  color: #856404;
-  font-size: 13px;
-  text-align: center;
-  font-weight: 500;
-}
+
 
 /* Bottom Navigation */
 .bottom-nav {
@@ -163,7 +152,7 @@
 }
 
 .nav-item.active {
-  color: white;
+  color: rgb(255, 255, 255);
 }
 
 .nav-icon {
