@@ -18,8 +18,6 @@ router.get('/summary', async (req, res) => {
       FROM item_records
     `;
 
-
-
     const result = await pool.query(summaryQuery);
     const row = result.rows[0];
 
