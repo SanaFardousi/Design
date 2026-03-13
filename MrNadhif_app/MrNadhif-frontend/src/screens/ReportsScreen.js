@@ -18,6 +18,7 @@ import {
   ResponsiveContainer
 } from 'recharts';
 
+// Import SVG icons (same style used in Dashboard)
 import {
   Settings,
   Home,
@@ -39,7 +40,7 @@ function ReportsScreen() {
 
 
   const [summaryData] = useState({
-    valuables: 13,
+    valuables: 5,
     plastic: 45,
     metal: 40,
     other: 10
@@ -47,13 +48,16 @@ function ReportsScreen() {
 
 
   /*
+    chartData stores weekly trend data
+    for each category.
+
     Each object contains:
     - week -> X-axis label
     - count -> Y-axis value
   */
   const [chartData] = useState({
     valuables: [
-      { week: 'session 1', count: 10 },
+      { week: 'Week 1', count: 2 },
       { week: 'Week 2', count: 0 },
       { week: 'Week 3', count: 1 },
       { week: 'Week 4', count: 2 },
@@ -61,8 +65,8 @@ function ReportsScreen() {
     plastic: [
       { week: 'Week 1', count: 10 },
       { week: 'Week 2', count: 10 },
-      { week: 'Week 3', count: 10 },
-      { week: 'Week 4', count: 15 },
+      { week: 'Week 3', count: 15 },
+      { week: 'Week 4', count: 10 },
     ],
     metal: [
       { week: 'Week 1', count: 5 },
@@ -135,7 +139,7 @@ function ReportsScreen() {
           <LineChart data={data}>
 
             {/* Grid lines */}
-            <CartesianGrid strokeDasharray="3 3" stroke="#ffffffff" />
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
 
             {/* X-axis labels (weeks) */}
             <XAxis
