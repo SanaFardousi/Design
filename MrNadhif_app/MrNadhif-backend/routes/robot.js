@@ -99,4 +99,44 @@ router.post('/stop', async (req, res) => {
   }
 });
 
+router.post('/obstacle/detected', async (req, res) => {
+  try {
+    await pool.query(
+      "UPDATE robots SET status = 'obstacle' WHERE robot_id = $1",
+      [1]);
+    
+    res.json({
+      success: true,
+      message: 'Obstacle detected'
+    });
+
+  } catch (error) {
+    console.error('Error updating obstacle status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+});
+
+router.post('/obstacle/cleared', async (req, res) => {
+  try {
+    await pool.query(
+      "UPDATE robots SET status = 'cleaning' WHERE robot_id = $1",
+      [1]);
+    
+    res.json({
+      success: true,
+      message: 'Obstacle cleared'
+    });
+
+  } catch (error) {
+    console.error('Error clearing obstacle status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+});
+
 module.exports = router;
