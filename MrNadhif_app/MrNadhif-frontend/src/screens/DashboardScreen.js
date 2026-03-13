@@ -21,12 +21,12 @@ import {
 } from 'lucide-react';
 
 function DashboardScreen() {
-
   // Hook used to redirect users to other pages
   const navigate = useNavigate();
 
   // State to store the logged-in user's email
   const [userEmail, setUserEmail] = useState('');
+  const [bins, setBins] = useState([]);
 
   /*
     useEffect runs once when the component loads.
@@ -36,7 +36,6 @@ function DashboardScreen() {
     - If logged in, then display their email.
   */
   useEffect(() => {
-
     // Get login data from localStorage
     const isLoggedIn = localStorage.getItem('isLoggedIn');
     const email = localStorage.getItem('userEmail');
@@ -49,6 +48,18 @@ function DashboardScreen() {
       setUserEmail(email || '');
     }
 
+    // Fetch bins from backend
+    const fetchBins = async () => {
+      try {
+        const res = await fetch('http://localhost:5000/api/bins');
+        const data = await res.json();
+        setBins(data);
+      } catch (err) {
+        console.error('Failed to fetch bins:', err);
+      }
+    };
+
+    fetchBins();
   }, [navigate]); // dependency array
 
   /*
@@ -56,7 +67,6 @@ function DashboardScreen() {
     - Removes login info from localStorage
     - Redirects back to login page
   */
-
   const handleLogout = () => {
     localStorage.removeItem('isLoggedIn');
     localStorage.removeItem('userEmail');
@@ -65,14 +75,10 @@ function DashboardScreen() {
 
   return (
     <div className="dashboard-container">
-
       {/*HEADER*/}
       <div className="dashboard-header">
-
         {/* Dashboard title */}
-        <div className="header-title">
-          Mr.Nadhif Dashboard
-        </div>
+        <div className="header-title">Mr.Nadhif Dashboard</div>
 
         {/* Settings button with SVG icon */}
         <button className="settings-button" onClick={() => navigate('/settings')}>
@@ -80,12 +86,10 @@ function DashboardScreen() {
         </button>
       </div>
 
-
       {/*WELCOME BANNER */}
       <div className="welcome-banner">
         Welcome, {userEmail}!
       </div>
-
 
       {/*OPERATIONAL ALERTS*/}
       <div className="section">
@@ -130,13 +134,11 @@ function DashboardScreen() {
         </div>
       </div>
 
-
       {/*ACTIVITY LOG*/}
       <div className="section">
         <h2 className="section-title">Robot Activity Log</h2>
 
         <div className="activity-timeline">
-
           {/* Activity 1 */}
           <div className="activity-item">
             <div className="activity-icon">
@@ -171,10 +173,8 @@ function DashboardScreen() {
               <div className="activity-time">11:00 AM</div>
             </div>
           </div>
-
         </div>
       </div>
-
 
       {/*STATUS OVERVIEW*/}
       <div className="section">
@@ -191,42 +191,21 @@ function DashboardScreen() {
           <div className="status-value">70%</div>
         </div>
 
-        
-
-        {/* Plastic Bin */}
-        <div className="status-item">
-          <div className="status-left">
-            <div className="status-label">Plastic Bin</div>
-            <div className="status-sublabel">
-              Next emptying due in 2-3 cycles
+        {/* Dynamic bins from database */}
+        {bins.map((bin) => (
+          <div className="status-item" key={bin.bin_id}>
+            <div className="status-left">
+              <div className="status-label">{bin.label} Bin</div>
+              <div className="status-sublabel">
+                Last updated: {new Date(bin.updated_at).toLocaleTimeString()}
+              </div>
+            </div>
+            <div className={`status-value ${bin.is_full ? 'full' : ''}`}>
+              {bin.is_full ? 'Full' : 'Not Full'}
             </div>
           </div>
-          <div className="status-value full">Full</div>
-        </div>
-      
-      
-        {/* Metal Bin */}
-      <div className="status-item">
-        <div className="status-left">
-          <div className="status-label">Metal Bin</div>
-          <div className="status-sublabel">
-            Last emptied: 12:45 PM, Capacity: 5.0 L
-          </div>
-        </div>
-        <div className="status-value">Not Full</div>
+        ))}
       </div>
-    
-      {/* Valuables Bin */}
-      <div className="status-item">
-        <div className="status-left">
-          <div className="status-label">Valuables Bin</div>
-          <div className="status-sublabel">
-            Last emptied: 12:45 PM, Capacity: 2.0 L
-          </div>
-        </div>
-        <div className="status-value full">Full</div>
-      </div>
-    </div>
 
       {/*LOGOUT BUTTON*/}
       <div className="logout-container">
@@ -235,10 +214,8 @@ function DashboardScreen() {
         </button>
       </div>
 
-
       {/*BOTTOM NAVIGATION*/}
       <div className="bottom-nav">
-
         <div className="nav-item active">
           <div className="nav-icon">
             <Home size={22} />
@@ -266,9 +243,7 @@ function DashboardScreen() {
           </div>
           <div className="nav-label">Valuables</div>
         </div>
-
       </div>
-
     </div>
   );
 }
