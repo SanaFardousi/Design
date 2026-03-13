@@ -10,6 +10,8 @@ const reportsRoutes = require('./routes/reports');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+const binsRouter = require('./routes/bins');
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -18,6 +20,8 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/robot', robotRoutes);
 app.use('/api/reports', reportsRoutes);
+
+app.use('/api/bins', binsRouter);
 
 // Test route
 app.get('/', (req, res) => {

@@ -39,13 +39,13 @@ function ValuablesScreen() {
       const data = await response.json();
 
       if (data.success) {
-        console.log('✅ Fetched valuables:', data.valuables);
+        console.log('Fetched valuables:', data.valuables);
         setValuables(data.valuables);
       } else {
         setError('Failed to load valuable items');
       }
     } catch (err) {
-      console.error('❌ Error fetching valuables:', err);
+      console.error('Error fetching valuables:', err);
       setError('Cannot connect to server. Make sure backend is running!');
     } finally {
       setLoading(false);
@@ -113,9 +113,9 @@ function ValuablesScreen() {
         {/* Error state */}
         {error && (
           <div className="val-error">
-            ⚠️ {error}
+             {error}
             <button onClick={fetchValuables} className="retry-btn">
-              🔄 Retry
+               Retry
             </button>
           </div>
         )}
@@ -233,7 +233,7 @@ function ValuablesScreen() {
               {selectedItem.location_lat && selectedItem.location_lng && (
                 <div className="val-modal-row">
                   <span className="val-modal-label">
-                    📍 GPS:
+                     GPS:
                   </span>
                   <span className="val-modal-value gps">
                     {selectedItem.location_lat.toFixed(6)}, {selectedItem.location_lng.toFixed(6)}
@@ -243,7 +243,7 @@ function ValuablesScreen() {
 
               <div className="val-modal-row">
                 <span className="val-modal-label">
-                  🔖 Item ID:
+                   Item ID:
                 </span>
                 <span className="val-modal-value">
                   #{selectedItem.item_id}
@@ -252,7 +252,7 @@ function ValuablesScreen() {
 
               <div className="val-modal-row">
                 <span className="val-modal-label">
-                  📊 Status:
+                   Status:
                 </span>
                 <span className="val-modal-value">
                   <span className="status-badge">{selectedItem.status}</span>
@@ -263,7 +263,7 @@ function ValuablesScreen() {
 
             {/* Action button */}
             <button className="val-modal-btn">
-              ✅ Mark as Returned
+               Mark as Returned
             </button>
 
           </div>

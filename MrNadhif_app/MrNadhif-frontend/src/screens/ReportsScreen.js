@@ -1,13 +1,6 @@
-
-// Import React and hooks
-// useState -> stores component data
-// useEffect -> runs code when component loads
 import React, { useState, useEffect } from 'react';
-
-// useNavigate allows navigation between pages
 import { useNavigate } from 'react-router-dom';
 
-// Import chart components from Recharts library
 import {
   LineChart,
   Line,
@@ -26,134 +19,132 @@ import {
   Search
 } from 'lucide-react';
 
-// Import CSS styling
 import './ReportsScreen.css';
 
-
 function ReportsScreen() {
-
-  // Allows us to programmatically move between routes
   const navigate = useNavigate();
 
-  //STATE
-
-
-  const [summaryData] = useState({
-    valuables: 13,
-    plastic: 45,
-    metal: 40,
-    other: 10
+  const [summaryData, setSummaryData] = useState({
+    valuables: 0,
+    plastic: 0,
+    metal: 0,
+    total: 0
   });
 
-
-  /*
-    Each object contains:
-    - week -> X-axis label
-    - count -> Y-axis value
-  */
-  const [chartData] = useState({
-    valuables: [
-      { week: 'session 1', count: 10 },
-      { week: 'Week 2', count: 0 },
-      { week: 'Week 3', count: 1 },
-      { week: 'Week 4', count: 2 },
-    ],
-    plastic: [
-      { week: 'Week 1', count: 10 },
-      { week: 'Week 2', count: 10 },
-      { week: 'Week 3', count: 10 },
-      { week: 'Week 4', count: 15 },
-    ],
-    metal: [
-      { week: 'Week 1', count: 5 },
-      { week: 'Week 2', count: 10 },
-      { week: 'Week 3', count: 20 },
-      { week: 'Week 4', count: 5 },
-    ],
+  const [chartData, setChartData] = useState({
+    valuables: [],
+    plastic: [],
+    metal: []
   });
 
+  const [loading, setLoading] = useState(true);
 
-  /*
-    When page loads:
-    - Check if user is logged in
-    - If not -> redirect to login page
-  */
   useEffect(() => {
     const isLoggedIn = localStorage.getItem('isLoggedIn');
 
     if (!isLoggedIn) {
       navigate('/');
+      return;
     }
 
+    const fetchReports = async () => {
+      try {
+        const [summaryRes, trendsRes] = await Promise.all([
+          fetch('http://localhost:5000/api/reports/summary'),
+          fetch('http://localhost:5000/api/reports/trends')
+        ]);
+
+        const summary = await summaryRes.json();
+        const trends = await trendsRes.json();
+
+        setSummaryData({
+          valuables: summary.valuables || 0,
+          plastic: summary.plastic || 0,
+          metal: summary.metal || 0,
+          total: summary.total || 0
+        });
+
+        setChartData({
+          valuables: trends.valuables || [],
+          plastic: trends.plastic || [],
+          metal: trends.metal || []
+        });
+      } catch (err) {
+        console.error('Failed to fetch reports:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchReports();
   }, [navigate]);
 
+  const handleDownloadReport = async () => {
+    try {
+      const response = await fetch('http://localhost:5000/api/reports/download');
 
-  /*
-    build a reusable chart component
-    Parameters:
-    - data -> weekly data array
-    - color -> line color
-    - category -> chart title
-  */
+      if (!response.ok) {
+        throw new Error('Failed to download report');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'pollution-report.pdf';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Download error:', error);
+      alert('Failed to download report');
+    }
+  };
+
   const renderChart = (data, color, category) => {
+    if (!data || data.length === 0) {
+      return (
+        <div className="chart-container">
+          <div className="chart-header">
+            <h3 className="chart-title">{category}</h3>
+          </div>
+          <div style={{ padding: '20px', textAlign: 'center' }}>
+            No data available
+          </div>
+        </div>
+      );
+    }
 
-    // Get first week's value
     const firstWeek = data[0].count;
-
-    // Get last week's value
     const lastWeek = data[data.length - 1].count;
 
-    /*
-      Calculate percentage change:
-      ((last - first) / first) * 100
-    */
     const change =
       firstWeek === 0
         ? 0
         : (((lastWeek - firstWeek) / firstWeek) * 100).toFixed(0);
 
-    // Determine if trend is positive or negative
-    const isPositive = change >= 0;
+    const isPositive = Number(change) >= 0;
 
     return (
       <div className="chart-container">
-
-        {/* Chart title and percentage indicator */}
         <div className="chart-header">
           <h3 className="chart-title">{category}</h3>
 
-          <span
-            className={`chart-change ${isPositive ? 'positive' : 'negative'}`}
-          >
+          <span className={`chart-change ${isPositive ? 'positive' : 'negative'}`}>
             {isPositive ? '+' : ''}
             {change}%
           </span>
         </div>
 
-        {/* Responsive chart wrapper */}
         <ResponsiveContainer width="100%" height={150}>
           <LineChart data={data}>
-
-            {/* Grid lines */}
             <CartesianGrid strokeDasharray="3 3" stroke="#ffffffff" />
-
-            {/* X-axis labels (weeks) */}
-            <XAxis
-              dataKey="week"
-              tick={{ fontSize: 11 }}
-              stroke="#999"
-            />
-
-            {/* Y-axis values */}
-            <YAxis
-              tick={{ fontSize: 11 }}
-              stroke="#999"
-            />
-
-            {/* Tooltip on hover */}
+            <XAxis dataKey="week" tick={{ fontSize: 11 }} stroke="#999" />
+            <YAxis tick={{ fontSize: 11 }} stroke="#999" />
             <Tooltip />
-
-            {/* The actual line */}
             <Line
               type="monotone"
               dataKey="count"
@@ -162,33 +153,35 @@ function ReportsScreen() {
               fill={color}
               fillOpacity={0.3}
             />
-
           </LineChart>
         </ResponsiveContainer>
       </div>
     );
   };
 
-
-  //UI
+  if (loading) {
+    return <div className="reports-container">Loading reports...</div>;
+  }
 
   return (
     <div className="reports-container">
-
       {/* HEADER SECTION */}
       <div className="reports-header">
         <div className="header-title">Reports</div>
 
-        {/* Settings icon (SVG instead of emoji) */}
-        <button className="settings-button" onClick={() => navigate('/settings')}>
-          <Settings size={23} />
-        </button>
-      </div>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button className="download-button" onClick={handleDownloadReport}>
+            Download Report
+          </button>
 
+          <button className="settings-button" onClick={() => navigate('/settings')}>
+            <Settings size={20} />
+          </button>
+        </div>
+      </div>
 
       {/* SUMMARY CARDS */}
       <div className="summary-section">
-
         <div className="summary-card">
           <div className="summary-label">Valuables</div>
           <div className="summary-value">{summaryData.valuables}</div>
@@ -206,27 +199,21 @@ function ReportsScreen() {
 
         <div className="summary-card highlight">
           <div className="summary-label">Total Items Found</div>
-          <div className="summary-value">{summaryData.other}</div>
+          <div className="summary-value">{summaryData.total}</div>
         </div>
-
       </div>
-
 
       {/* TRENDS SECTION */}
       <div className="trends-section">
-        <h2 className="section-title">Trends over 30 days</h2>
+        <h2 className="section-title">Weekly Trends</h2>
 
-        {/* Render charts using reusable function */}
         {renderChart(chartData.valuables, '#9B59B6', 'Valuables')}
         {renderChart(chartData.plastic, '#E74C3C', 'Plastic')}
         {renderChart(chartData.metal, '#95A5A6', 'Metal')}
       </div>
 
-
-
-      {/* BOTTOM NAVIGATION (Using SVG icons) */}
+      {/* BOTTOM NAVIGATION */}
       <div className="bottom-nav">
-
         <div className="nav-item" onClick={() => navigate('/dashboard')}>
           <div className="nav-icon">
             <Home size={22} />
@@ -254,9 +241,7 @@ function ReportsScreen() {
           </div>
           <div className="nav-label">Lost & Found</div>
         </div>
-
       </div>
-
     </div>
   );
 }

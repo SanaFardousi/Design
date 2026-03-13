@@ -42,7 +42,7 @@
 }
 
 .summary-card {
-  background: rgb(255, 226, 165);
+  background: rgb(248, 242, 231);
   padding: 20px;
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.05);
@@ -167,4 +167,19 @@
 .nav-icon svg,
 .settings-button svg {
   display: block;
+}
+
+.download-button {
+  background-color: #2e7d32;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.download-button:hover {
+  background-color: #256428;
 }
