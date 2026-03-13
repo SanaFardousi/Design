@@ -6,6 +6,7 @@ require('dotenv').config();
 const authRoutes = require('./routes/auth');
 const robotRoutes = require('./routes/robot');
 const reportsRoutes = require('./routes/reports');
+const binsRoutes = require('./routes/bins');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -18,6 +19,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/robot', robotRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/bins',    binsRoutes); 
 
 // Test route
 app.get('/', (req, res) => {
