@@ -1,3 +1,7 @@
+const express = require('express');
+const router  = express.Router();
+const pool    = require('../config/db');
+
 router.post('/log', async (req, res) => {
   try {
     const { category, location_lat, location_lng } = req.body;
@@ -22,3 +26,5 @@ router.post('/log', async (req, res) => {
     });
   }
 });
+
+module.exports = router;
