@@ -28,10 +28,10 @@ const robotAuth = (req, res, next) => {
 
 // Routes
 app.use('/api/auth', authRoutes);               //  No key (app login)
-app.use('/api/robot', robotAuth, robotRoutes);  //  Pi protected
+app.use('/api/robot', robotRoutes);  //  Pi protected
 app.use('/api/reports', reportsRoutes);         //  No key (app reads)
-app.use('/api/bins', robotAuth, binsRouter);    //  Pi protected
-app.use('/api/items', robotAuth, itemsRoutes);  //  Pi protected
+app.use('/api/bins', binsRouter);    //  Pi protected
+app.use('/api/items',  itemsRoutes);  //  Pi protected
 
 // Test route
 app.get('/', (req, res) => {
