@@ -99,4 +99,36 @@ router.post('/stop', async (req, res) => {
   }
 });
 
+router.post('/obstacle/detected', async (req, res) => {
+  try {
+    await pool.query(
+      `INSERT INTO notifications (type, message) 
+       VALUES ($1, $2)`,
+      ['obstacle_detected', 'Obstacle detected in front of robot']
+    );
+
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error('Error logging obstacle:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+router.post('/obstacle/cleared', async (req, res) => {
+  try {
+    await pool.query(
+      `INSERT INTO notifications (type, message) 
+       VALUES ($1, $2)`,
+      ['obstacle_cleared', 'Obstacle cleared, path is free']
+    );
+
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error('Error logging obstacle cleared:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 module.exports = router;
