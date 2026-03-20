@@ -1,28 +1,74 @@
 const express = require('express');
-const router  = express.Router();
-const pool    = require('../config/db');
+const router = express.Router();
+const pool = require('../config/db');
 
+
+// POST /api/items/log
+// Used to insert a new detected item into the database
 router.post('/log', async (req, res) => {
   try {
-    const { category, location_lat, location_lng } = req.body;
+    const { category, location_lat, location_lng, image_url, status, session_id } = req.body;
 
     const result = await pool.query(
-      `INSERT INTO item_records (category, location_lat, location_lng)
-       VALUES ($1, $2, $3)
+      `INSERT INTO item_records (session_id, category, timestamp, location_lat, location_lng, image_url, status)
+       VALUES ($1, $2, NOW(), $3, $4, $5, $6)
        RETURNING *`,
-      [category, location_lat, location_lng]
+      [
+        session_id || null,
+        category,
+        location_lat || null,
+        location_lng || null,
+        image_url || null,
+        status || 'pending'
+      ]
     );
 
-    res.json({ 
-      success: true, 
-      record: result.rows[0] 
+    res.json({
+      success: true,
+      record: result.rows[0]
     });
 
   } catch (error) {
     console.error('Error logging item:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Server error' 
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+});
+
+
+// GET /api/items/valuables
+// Returns only valuable items for the Lost & Found screen
+router.get('/valuables', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT
+         ir.item_id,
+         ir.category,
+         ir.timestamp,
+         ir.location_lat,
+         ir.location_lng,
+         ir.image_url,
+         ir.status,
+         cs.beach_cleaned
+       FROM item_records ir
+       LEFT JOIN cleaning_sessions cs
+         ON ir.session_id = cs.session_id
+       WHERE LOWER(ir.category) IN ('sunglasses', 'watches', 'wallets')
+       ORDER BY ir.timestamp DESC`
+    );
+
+    res.json({
+      success: true,
+      items: result.rows
+    });
+
+  } catch (error) {
+    console.error('Error fetching valuables:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
     });
   }
 });
