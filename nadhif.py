@@ -49,6 +49,10 @@ current_lat  = None
 current_lng  = None
 motor_serial = None
 
+# Shared camera frame
+latest_frame = None
+frame_lock   = threading.Lock()
+
 bins = [
     { 'id': 1, 'label': 'Plastic',  'full': False },
     { 'id': 2, 'label': 'Metal',    'full': False },
@@ -123,7 +127,6 @@ def send_servo(category):
 # ── Log item to DB ────────────────────────────
 def log_item(category):
     payload = { 'category': category }
-
     if current_lat is not None and current_lng is not None:
         payload['location_lat'] = current_lat
         payload['location_lng'] = current_lng
@@ -300,7 +303,15 @@ def sensor_loop():
             log.error(f"Sensor serial error: {e}. Retrying in 5s...")
             time.sleep(5)
 
-# ── Main (camera + display in main thread) ────
+# ── Camera capture thread ─────────────────────
+def camera_capture_thread(camera):
+    global latest_frame
+    while True:
+        new_frame = camera.capture_array()
+        with frame_lock:
+            latest_frame = new_frame.copy()
+
+# ── Main (display + YOLO in main thread) ──────
 def main():
     global motor_serial
 
@@ -320,7 +331,7 @@ def main():
     # ── Camera setup ──────────────────────────
     log.info("Initializing camera...")
     camera = Picamera2()
-    config = camera.create_still_configuration(
+    config = camera.create_preview_configuration(
         main={ 'size': (640, 480), 'format': 'RGB888' },
         controls={
             'AfMode': 2, 'AfSpeed': 1,
@@ -338,6 +349,14 @@ def main():
     except Exception as e:
         log.warning(f"Autofocus: {e}")
 
+    # Start camera capture in background thread
+    threading.Thread(target=camera_capture_thread, args=(camera,), daemon=True).start()
+
+    # Wait for first frame
+    while latest_frame is None:
+        time.sleep(0.1)
+    log.info("First frame received.")
+
     temp_dir               = tempfile.mkdtemp(prefix='mrnadhif_')
     last_capture_time      = 0
     last_refocus_time      = time.time()
@@ -349,11 +368,11 @@ def main():
 
     try:
         while True:
-            frame        = camera.capture_array()
-            current_time = time.time()
+            with frame_lock:
+                frame = latest_frame.copy()
 
-            # Convert RGB → BGR for correct OpenCV colors
-            display = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            current_time = time.time()
+            display      = frame.copy()
 
             # Auto-refocus
             if current_time - last_refocus_time >= REFOCUS_INTERVAL:
@@ -411,7 +430,7 @@ def main():
 
             cv2.imshow('Mr Nadhif — Detection', display)
 
-            key = cv2.waitKey(100) & 0xFF
+            key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
                 log.info("Stopping...")
                 break
