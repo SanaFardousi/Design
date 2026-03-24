@@ -1,13 +1,7 @@
-// Import React and required hooks
 import React, { useEffect, useState } from 'react';
-
-// useNavigate allows programmatic navigation between routes
 import { useNavigate } from 'react-router-dom';
-
-// Import CSS styling for this screen
 import './DashboardScreen.css';
 
-// Import clean SVG icons from lucide-react
 import {
   Settings,
   Play,
@@ -18,37 +12,26 @@ import {
   Gamepad2,
   Search,
   Pause,
+  Bell
 } from 'lucide-react';
 
 function DashboardScreen() {
-  // Hook used to redirect users to other pages
   const navigate = useNavigate();
 
-  // State to store the logged-in user's email
   const [userEmail, setUserEmail] = useState('');
   const [bins, setBins] = useState([]);
+  const [notifications, setNotifications] = useState([]);
 
-  /*
-    useEffect runs once when the component loads.
-    Purpose:
-    - Check if the user is logged in.
-    - If not logged in, then redirect to login page.
-    - If logged in, then display their email.
-  */
   useEffect(() => {
-    // Get login data from localStorage
     const isLoggedIn = localStorage.getItem('isLoggedIn');
     const email = localStorage.getItem('userEmail');
 
-    // If user is NOT logged in, then redirect to login page
     if (!isLoggedIn) {
       navigate('/');
     } else {
-      // If logged in, then save email into state
       setUserEmail(email || '');
     }
 
-    // Fetch bins from backend
     const fetchBins = async () => {
       try {
         const res = await fetch('http://localhost:5000/api/bins');
@@ -59,128 +42,133 @@ function DashboardScreen() {
       }
     };
 
-    fetchBins();
-  }, [navigate]); // dependency array
+    const fetchNotifications = async () => {
+      try {
+        const res = await fetch('http://localhost:5000/api/notifications');
+        const data = await res.json();
 
-  /*
-    Logout function:
-    - Removes login info from localStorage
-    - Redirects back to login page
-  */
+        if (data.success) {
+          setNotifications(data.notifications);
+        }
+      } catch (err) {
+        console.error('Failed to fetch notifications:', err);
+      }
+    };
+
+    fetchBins();
+    fetchNotifications();
+  }, [navigate]);
+
   const handleLogout = () => {
     localStorage.removeItem('isLoggedIn');
     localStorage.removeItem('userEmail');
     navigate('/');
   };
 
+  const getNotificationTitle = (type) => {
+    if (!type) return 'Notification';
+
+    const normalized = type.toLowerCase();
+
+    if (normalized === 'alert') return 'Alert';
+    if (normalized === 'warning') return 'Warning';
+    if (normalized === 'obstacle_detected') return 'Obstacle Detected';
+    if (normalized === 'operation_started') return 'Operation Started';
+    if (normalized === 'paused') return 'Cleaning Paused';
+
+    return type.replace(/_/g, ' ');
+  };
+
+  const getNotificationIcon = (type) => {
+    if (!type) return <Bell size={18} />;
+
+    const normalized = type.toLowerCase();
+
+    if (normalized === 'alert') return <AlertTriangle size={18} />;
+    if (normalized === 'warning') return <BatteryLow size={18} />;
+    if (normalized === 'obstacle_detected') return <AlertTriangle size={18} />;
+    if (normalized === 'operation_started') return <Play size={18} />;
+    if (normalized === 'paused') return <Pause size={18} />;
+
+    return <Bell size={18} />;
+  };
+
   return (
     <div className="dashboard-container">
-      {/*HEADER*/}
       <div className="dashboard-header">
-        {/* Dashboard title */}
         <div className="header-title">Mr.Nadhif Dashboard</div>
 
-        {/* Settings button with SVG icon */}
         <button className="settings-button" onClick={() => navigate('/settings')}>
           <Settings size={20} />
         </button>
       </div>
 
-      {/*WELCOME BANNER */}
       <div className="welcome-banner">
         Welcome, {userEmail}!
       </div>
 
-      {/*OPERATIONAL ALERTS*/}
       <div className="section">
         <h2 className="section-title">Operational Alerts</h2>
 
-        {/* Alert 1 */}
-        <div className="alert-item">
-          <div className="alert-icon blue">
-            <Play size={20} />
-          </div>
-          <div className="alert-content">
-            <div className="alert-heading">Operation Started</div>
-            <div className="alert-text">Cleaning operation started</div>
-            <div className="alert-time">10:05 AM</div>
-          </div>
-        </div>
-
-        {/* Alert 2 */}
-        <div className="alert-item">
-          <div className="alert-icon blue">
-            <AlertTriangle size={20} />
-          </div>
-          <div className="alert-content">
-            <div className="alert-heading">Obstacle Detected</div>
-            <div className="alert-text">Obstacle detected, path recalculated</div>
-            <div className="alert-time">10:15 AM</div>
-          </div>
-        </div>
-
-        {/* Alert 3 */}
-        <div className="alert-item">
-          <div className="alert-icon blue">
-            <BatteryLow size={20} />
-          </div>
-          <div className="alert-content">
-            <div className="alert-heading">Low Battery</div>
-            <div className="alert-text">
-              Battery low: Robot requires charging soon
+        {notifications.length === 0 ? (
+          <div className="alert-text">No alerts available</div>
+        ) : (
+          notifications.slice(0, 3).map((notification) => (
+            <div className="alert-item" key={notification.notification_id}>
+              <div className="alert-icon blue">
+                {getNotificationIcon(notification.type)}
+              </div>
+              <div className="alert-content">
+                <div className="alert-heading">
+                  {getNotificationTitle(notification.type)}
+                </div>
+                <div className="alert-text">{notification.message}</div>
+                <div className="alert-time">
+                  {new Date(notification.timestamp).toLocaleString()}
+                </div>
+              </div>
             </div>
-            <div className="alert-time">10:30 AM</div>
-          </div>
-        </div>
+          ))
+        )}
       </div>
 
-      {/*ACTIVITY LOG*/}
       <div className="section">
         <h2 className="section-title">Robot Activity Log</h2>
 
         <div className="activity-timeline">
-          {/* Activity 1 */}
-          <div className="activity-item">
-            <div className="activity-icon">
-              <Play size={18} />
-            </div>
-            <div className="activity-line"></div>
+          {notifications.length === 0 ? (
             <div className="activity-content">
-              <div className="activity-heading">Cleaning Started</div>
-              <div className="activity-time">10:00 AM</div>
+              <div className="activity-heading">No activity found</div>
             </div>
-          </div>
+          ) : (
+            notifications.map((notification, index) => (
+              <div className="activity-item" key={notification.notification_id}>
+                <div className="activity-icon">
+                  {getNotificationIcon(notification.type)}
+                </div>
 
-          {/* Activity 2 */}
-          <div className="activity-item">
-            <div className="activity-icon">
-              <Pause size={18} />
-            </div>
-            <div className="activity-line"></div>
-            <div className="activity-content">
-              <div className="activity-heading">Cleaning Paused</div>
-              <div className="activity-time">10:20 AM</div>
-            </div>
-          </div>
+                {index !== notifications.length - 1 && (
+                  <div className="activity-line"></div>
+                )}
 
-          {/* Activity 3 */}
-          <div className="activity-item">
-            <div className="activity-icon">
-              <AlertTriangle size={18} />
-            </div>
-            <div className="activity-content">
-              <div className="activity-heading">Obstacle Detected</div>
-              <div className="activity-time">11:00 AM</div>
-            </div>
-          </div>
+                <div className="activity-content">
+                  <div className="activity-heading">
+                    {getNotificationTitle(notification.type)}
+                  </div>
+                  <div className="alert-text">{notification.message}</div>
+                  <div className="activity-time">
+                    {new Date(notification.timestamp).toLocaleString()}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 
-      {/*STATUS OVERVIEW*/}
       <div className="section">
         <h2 className="section-title">Current Status Overview</h2>
 
-        {/* Battery */}
         <div className="status-item">
           <div className="status-left">
             <div className="status-label">Battery Level</div>
@@ -191,7 +179,6 @@ function DashboardScreen() {
           <div className="status-value">70%</div>
         </div>
 
-        {/* Dynamic bins from database */}
         {bins.map((bin) => (
           <div className="status-item" key={bin.bin_id}>
             <div className="status-left">
@@ -207,14 +194,12 @@ function DashboardScreen() {
         ))}
       </div>
 
-      {/*LOGOUT BUTTON*/}
       <div className="logout-container">
         <button onClick={handleLogout} className="logout-button">
           Logout
         </button>
       </div>
 
-      {/*BOTTOM NAVIGATION*/}
       <div className="bottom-nav">
         <div className="nav-item active">
           <div className="nav-icon">
