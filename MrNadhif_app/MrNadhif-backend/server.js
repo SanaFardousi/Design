@@ -8,6 +8,7 @@ const robotRoutes = require('./routes/robot');
 const reportsRoutes = require('./routes/reports');
 const binsRouter = require('./routes/bins');
 const itemsRoutes = require('./routes/items');
+const uploadRoutes = require('./routes/upload');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -31,7 +32,8 @@ app.use('/api/auth', authRoutes);               //  No key (app login)
 app.use('/api/robot', robotRoutes);  //  Pi protected
 app.use('/api/reports', reportsRoutes);         //  No key (app reads)
 app.use('/api/bins', binsRouter);    //  Pi protected
-app.use('/api/items',  itemsRoutes);  //  Pi protected
+app.use('/api/items', itemsRoutes);  //  Pi protected
+app.use('/api/upload', uploadRoutes);
 
 // Test route
 app.get('/', (req, res) => {
