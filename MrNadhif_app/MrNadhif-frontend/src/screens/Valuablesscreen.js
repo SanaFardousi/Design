@@ -7,7 +7,10 @@ import {
   Search,
   Home,
   BarChart2,
-  Gamepad2
+  Gamepad2,
+  X,
+  MapPin,
+  PackageSearch
 } from 'lucide-react';
 
 function ValuablesScreen() {
@@ -17,6 +20,7 @@ function ValuablesScreen() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selectedItem, setSelectedItem] = useState(null);
 
   useEffect(() => {
     const fetchValuables = async () => {
@@ -27,11 +31,11 @@ function ValuablesScreen() {
         if (data.success) {
           setItems(data.items);
         } else {
-          setError('Failed to load valuables');
+          setError('Could not load valuable items.');
         }
       } catch (err) {
         console.error('Fetch error:', err);
-        setError('Could not connect to server');
+        setError('Could not connect to the server.');
       } finally {
         setLoading(false);
       }
@@ -39,6 +43,36 @@ function ValuablesScreen() {
 
     fetchValuables();
   }, []);
+
+  const formatCategory = (category) => {
+    if (!category) return 'Unknown';
+
+    const map = {
+      watches: 'Watch',
+      wallets: 'Wallet',
+      sunglasses: 'Sunglasses',
+      keys: 'Keys'
+    };
+
+    return map[category.toLowerCase()] || category;
+  };
+
+  const formatStatus = (status) => {
+    if (!status) return 'Unknown';
+    return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+  };
+
+  const getStatusClass = (status) => {
+    if (!status) return 'status-unknown';
+
+    const normalized = status.toLowerCase();
+
+    if (normalized === 'stored') return 'status-stored';
+    if (normalized === 'claimed') return 'status-claimed';
+    if (normalized === 'pending') return 'status-pending';
+
+    return 'status-unknown';
+  };
 
   const filtered = items.filter((item) => {
     const searchText = search.toLowerCase();
@@ -86,47 +120,162 @@ function ValuablesScreen() {
       <div className="val-section">
         <div className="val-section-title">Valuable Items</div>
 
-        {loading && <div className="val-empty">Loading...</div>}
-        {error && <div className="val-empty">{error}</div>}
+        {loading && (
+          <div className="val-state-card">
+            <div className="val-loading-spinner"></div>
+            <h3>Loading valuable items...</h3>
+            <p>Please wait while the system retrieves recovered valuables.</p>
+          </div>
+        )}
 
-        {!loading && !error && (
+        {!loading && error && (
+          <div className="val-state-card error">
+            <div className="val-empty-icon">!</div>
+            <h3>Could not load items</h3>
+            <p>{error}</p>
+          </div>
+        )}
+
+        {!loading && !error && filtered.length === 0 && (
+          <div className="val-state-card empty">
+            <div className="val-empty-icon">
+              <PackageSearch size={24} />
+            </div>
+            <h3>No valuables found</h3>
+            <p>Try changing the search text or check again later.</p>
+          </div>
+        )}
+
+        {!loading && !error && filtered.length > 0 && (
           <div className="val-grid">
             {filtered.map((item) => (
-              <div className="val-card" key={item.item_id}>
+              <div
+                className="val-card"
+                key={item.item_id}
+                onClick={() => setSelectedItem(item)}
+              >
                 <img
                   className="val-img"
                   src={item.image_url}
                   alt={item.category}
+                  onError={(e) => {
+                    e.target.src = '/valuables/placeholder.jpg';
+                  }}
                 />
 
-                <div className="val-card-date">
-                  Found: {new Date(item.timestamp).toLocaleString()}
-                </div>
+                <div className="val-card-content">
+                  <div className="val-card-top">
+                    <div className="val-card-category">
+                      {formatCategory(item.category)}
+                    </div>
 
-                <div className="val-card-loc">
-                  Beach: {item.beach_cleaned || 'Unknown beach'}
-                </div>
+                    <div className={`status-badge ${getStatusClass(item.status)}`}>
+                      {formatStatus(item.status)}
+                    </div>
+                  </div>
 
-                <div className="val-card-loc">
-                  Category: {item.category}
-                </div>
+                  <div className="val-card-date">
+                    Found: {new Date(item.timestamp).toLocaleString()}
+                  </div>
 
-                <div className="val-card-loc">
-                  Status: {item.status}
-                </div>
+                  <div className="val-card-loc">
+                    Beach: {item.beach_cleaned || 'Unknown beach'}
+                  </div>
 
-                <div className="val-card-loc">
-                  GPS: {item.location_lat ?? 'N/A'}, {item.location_lng ?? 'N/A'}
+                  <div className="val-card-gps">
+                    GPS: {item.location_lat ?? 'N/A'}, {item.location_lng ?? 'N/A'}
+                  </div>
                 </div>
               </div>
             ))}
-
-            {filtered.length === 0 && (
-              <div className="val-empty">No items found</div>
-            )}
           </div>
         )}
       </div>
+
+      {selectedItem && (
+        <div className="val-modal-overlay" onClick={() => setSelectedItem(null)}>
+          <div className="val-modal" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="val-modal-close"
+              onClick={() => setSelectedItem(null)}
+            >
+              <X size={18} />
+            </button>
+
+            <img
+              className="val-modal-img"
+              src={selectedItem.image_url}
+              alt={selectedItem.category}
+              onError={(e) => {
+                e.target.src = '/valuables/placeholder.jpg';
+              }}
+            />
+
+            <div className="val-modal-body">
+              <h2>{formatCategory(selectedItem.category)}</h2>
+
+              <div className="val-modal-status-row">
+                <div className={`status-badge ${getStatusClass(selectedItem.status)}`}>
+                  {formatStatus(selectedItem.status)}
+                </div>
+              </div>
+
+              <div className="val-modal-meta">
+                <p>
+                  <span className="val-modal-label">Beach:</span>{' '}
+                  <span className="val-modal-value">
+                    {selectedItem.beach_cleaned || 'Unknown beach'}
+                  </span>
+                </p>
+
+                <p>
+                  <span className="val-modal-label">Found at:</span>{' '}
+                  <span className="val-modal-value">
+                    {selectedItem.timestamp
+                      ? new Date(selectedItem.timestamp).toLocaleString()
+                      : 'N/A'}
+                  </span>
+                </p>
+
+                <p>
+                  <span className="val-modal-label">GPS:</span>{' '}
+                  <span className="val-modal-value">
+                    {selectedItem.location_lat ?? 'N/A'}, {selectedItem.location_lng ?? 'N/A'}
+                  </span>
+                </p>
+
+                <p>
+                  <span className="val-modal-label">Session ID:</span>{' '}
+                  <span className="val-modal-value">
+                    {selectedItem.session_id ?? 'N/A'}
+                  </span>
+                </p>
+              </div>
+
+              {selectedItem.location_lat != null && selectedItem.location_lng != null && (
+                <a
+                  className="val-map-link"
+                  href={`https://www.google.com/maps?q=${selectedItem.location_lat},${selectedItem.location_lng}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <MapPin size={16} />
+                  View location on map
+                </a>
+              )}
+
+              <div className="val-modal-footer">
+                <button
+                  className="val-modal-btn"
+                  onClick={() => setSelectedItem(null)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="bottom-nav">
         <div className="nav-item" onClick={() => navigate('/dashboard')}>

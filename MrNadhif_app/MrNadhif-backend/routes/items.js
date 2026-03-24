@@ -10,7 +10,15 @@ router.post('/log', async (req, res) => {
     const { category, location_lat, location_lng, image_url, status, session_id } = req.body;
 
     const result = await pool.query(
-      `INSERT INTO item_records (session_id, category, timestamp, location_lat, location_lng, image_url, status)
+      `INSERT INTO item_records (
+        session_id,
+        category,
+        timestamp,
+        location_lat,
+        location_lng,
+        image_url,
+        status
+      )
        VALUES ($1, $2, NOW(), $3, $4, $5, $6)
        RETURNING *`,
       [
@@ -39,12 +47,13 @@ router.post('/log', async (req, res) => {
 
 
 // GET /api/items/valuables
-// Returns only valuable items for the Lost & Found screen
+// Returns valuable items for the Lost & Found screen
 router.get('/valuables', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT
          ir.item_id,
+         ir.session_id,
          ir.category,
          ir.timestamp,
          ir.location_lat,
@@ -55,7 +64,7 @@ router.get('/valuables', async (req, res) => {
        FROM item_records ir
        LEFT JOIN cleaning_sessions cs
          ON ir.session_id = cs.session_id
-       WHERE LOWER(ir.category) IN ('sunglasses', 'watches', 'wallets')
+       WHERE LOWER(ir.category) IN ('sunglasses', 'watches', 'wallets', 'keys')
        ORDER BY ir.timestamp DESC`
     );
 
