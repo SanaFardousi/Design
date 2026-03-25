@@ -11,7 +11,7 @@ from datetime import datetime
 from picamera2 import Picamera2
 
 # ── Backend config ────────────────────────────
-BASE_URL = 'https://implacental-evelina-atmosphereless.ngrok-free.dev'
+BASE_URL = 'http://172.20.10.6:5000'
 API_KEY  = 'test123'
 
 logging.basicConfig(
@@ -60,14 +60,40 @@ def post(endpoint, payload):
     except requests.exceptions.Timeout:
         log.error(f"Request to {endpoint} timed out")
 
+# ── Upload image to backend ───────────────────
+def upload_image(image_path, category, confidence):
+    url = f"{BASE_URL}/api/upload/image"
+    try:
+        with open(image_path, 'rb') as f:
+            res = requests.post(
+                url,
+                headers={ 'x-api-key': API_KEY },
+                files={ 'image': f },
+                data={ 'category': category, 'confidence': str(confidence) },
+                timeout=10
+            )
+        if res.status_code == 200:
+            data = res.json()
+            image_url = data.get('item', {}).get('image_url') or data.get('image_url')
+            log.info(f"Image uploaded: {image_url}")
+            return image_url
+        else:
+            log.error(f"Image upload failed: {res.status_code}")
+            return None
+    except Exception as e:
+        log.error(f"Image upload error: {e}")
+        return None
+
 # ── Log item to DB ────────────────────────────
-def log_item(category):
+def log_item(category, image_url=None):
     payload = { 'category': category }
     if current_lat is not None and current_lng is not None:
         payload['location_lat'] = current_lat
         payload['location_lng'] = current_lng
     else:
         log.warning(f"No GPS fix yet — logging {category} without location")
+    if image_url:
+        payload['image_url'] = image_url
     post('/api/items/log', payload)
 
 # ── GPS handler ───────────────────────────────
@@ -484,10 +510,24 @@ def main():
                             det["category"] = "unknown"
                         else:
                             det["category"] = category
-                            char = SERIAL_CHAR[category]
-                            arduino.send(char)
-                            log_item(category)
+                            char = SERIAL_CHAR.get(category)
+                            if char:
+                                arduino.send(char)
                             send_servo(category)
+
+                            # For valuables: upload image then log with URL
+                            if category == 'valuable':
+                                image_url = upload_image(temp_path, category, det["confidence"])
+                                log_item(category, image_url=image_url)
+                            else:
+                                log_item(category)
+
+                            if category == 'metal':
+                                image_url = upload_image(temp_path, category, det["confidence"])
+                                log_item(category, image_url=image_url)
+                            else:
+                                log_item(category)
+
                         current_detections.append(det)
 
                     if current_detections:
@@ -502,10 +542,16 @@ def main():
                     print("✗ API call failed")
                     current_detections = []
 
-                try:
-                    os.remove(temp_path)
-                except:
-                    pass
+                # Only delete temp image if no valuable was detected
+                has_valuable = any(
+                    get_category(det["name"]) == 'valuable'
+                    for det in (raw_detections or [])
+                )
+                if not has_valuable:
+                    try:
+                        os.remove(temp_path)
+                    except:
+                        pass
 
                 last_capture_time = current_time
 
