@@ -7,7 +7,7 @@ const pool = require('../config/db');
 // Configure storage
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, 'uploads/images/') // Save to uploads/images folder
+    cb(null, '../MrNadhif-frontend/public/valuables/')
   },
   filename: function (req, file, cb) {
     // Generate unique filename
@@ -28,13 +28,13 @@ router.post('/image', upload.single('image'), async (req, res) => {
       });
     }
 
-    const imageUrl = `/uploads/images/${req.file.filename}`;
+    const imageUrl = `/valuables/${req.file.filename}`;
     const { category, session_id, confidence } = req.body;
 
     // Save to database
     const result = await pool.query(
-      'INSERT INTO item_record (session_id, category, image_url, confidence) VALUES ($1, $2, $3, $4) RETURNING *',
-      [session_id || 1, category, imageUrl, confidence || 95.0]
+      'INSERT INTO item_records (session_id, category, image_url) VALUES ($1, $2, $3) RETURNING *',
+      [session_id || null, category, imageUrl]
     );
 
     res.json({

@@ -90,6 +90,7 @@ def log_item(category, image_url=None):
     if current_lat is not None and current_lng is not None:
         payload['location_lat'] = current_lat
         payload['location_lng'] = current_lng
+        log.info(f"Sending GPS: {current_lat}, {current_lng}")  # ← add this
     else:
         log.warning(f"No GPS fix yet — logging {category} without location")
     if image_url:
@@ -237,14 +238,16 @@ CATEGORY_MAP = {
     "steel":          "metal",
 
     # --- VALUABLE ---
-    "phone":          "valuable",
-    "wallet":         "valuable",
-    "keys":           "valuable",
-    "watch":          "valuable",
-    "jewelry":        "valuable",
-    "laptop":         "valuable",
-    "valuable":       "valuable",
+    "phone":      "valuable",
+    "wallet":     "wallets",
+    "keys":       "keys",
+    "watch":      "watches",
+    "jewelry":    "valuable",
+    "laptop":     "valuable",
+    "valuable":   "valuable",
 }
+
+VALUABLE_CATEGORIES = {'valuable', 'watches', 'wallets', 'keys'}
 
 # Char sent to Arduino for each category
 SERIAL_CHAR = {
@@ -516,7 +519,7 @@ def main():
                             send_servo(category)
 
                             # For valuables: upload image then log with URL
-                            if category == 'valuable':
+                            if category in VALUABLE_CATEGORIES:
                                 image_url = upload_image(temp_path, category, det["confidence"])
                                 log_item(category, image_url=image_url)
                             else:
@@ -544,7 +547,7 @@ def main():
 
                 # Only delete temp image if no valuable was detected
                 has_valuable = any(
-                    get_category(det["name"]) == 'valuable'
+                    get_category(det["name"]) in VALUABLE_CATEGORIES
                     for det in (raw_detections or [])
                 )
                 if not has_valuable:

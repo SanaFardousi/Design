@@ -24,8 +24,8 @@ router.post('/log', async (req, res) => {
       [
         session_id || null,
         category,
-        location_lat || null,
-        location_lng || null,
+        location_lat !== undefined ? location_lat : null,
+        location_lng !== undefined ? location_lng : null,
         image_url || null,
         status || 'pending'
       ]
