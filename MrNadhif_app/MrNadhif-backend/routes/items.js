@@ -5,6 +5,7 @@ const pool = require('../config/db');
 
 // POST /api/items/log
 // Used to insert a new detected item into the database
+// edit the insertion
 router.post('/log', async (req, res) => {
   try {
     const { category, location_lat, location_lng, image_url, status, session_id } = req.body;
@@ -18,6 +19,7 @@ router.post('/log', async (req, res) => {
         location_lng,
         image_url,
         status
+        //
       )
        VALUES ($1, $2, NOW(), $3, $4, $5, $6)
        RETURNING *`,
