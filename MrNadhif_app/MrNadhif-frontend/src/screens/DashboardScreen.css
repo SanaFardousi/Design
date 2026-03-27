@@ -272,3 +272,56 @@
 .settings-button svg {
   display: block;
 }
+
+.robot-activity-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.robot-activity-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #ececec;
+}
+
+.robot-activity-row:last-child {
+  border-bottom: none;
+}
+
+.robot-activity-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: #d9ebff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #184b8a;
+  flex-shrink: 0;
+}
+
+.robot-activity-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.robot-activity-label {
+  font-size: 13px;
+  color: #7a7a7a;
+  font-weight: 500;
+}
+
+.robot-activity-value {
+  font-size: 16px;
+  color: #111;
+  font-weight: 700;
+}
+
+.activity-card-empty {
+  color: #888;
+  font-size: 14px;
+}

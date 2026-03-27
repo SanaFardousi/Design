@@ -213,3 +213,36 @@
 .rc-status-badge svg {
   display: block;
 }
+
+.rc-session-card {
+  background: #111827;
+  border-radius: 16px;
+  padding: 16px;
+  margin: 14px 0;
+  color: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.rc-session-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.rc-session-details {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rc-session-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.rc-session-empty {
+  font-size: 14px;
+  opacity: 0.8;
+}

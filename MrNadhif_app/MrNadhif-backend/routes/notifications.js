@@ -1,18 +1,36 @@
-// routes/notifications.js
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 
 // GET /api/notifications
-// Returns latest notifications for dashboard
 router.get('/', async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT notification_id, type, timestamp, session_id, message
-      FROM notifications
-      ORDER BY timestamp DESC
-      LIMIT 10
-    `);
+    const activeSession = await pool.query(
+      `SELECT session_id
+       FROM cleaning_sessions
+       WHERE robot_id = $1 AND status IN ('in_progress', 'paused')
+       ORDER BY start_time DESC
+       LIMIT 1`,
+      [1]
+    );
+
+    if (activeSession.rows.length === 0) {
+      return res.json({
+        success: true,
+        notifications: []
+      });
+    }
+
+    const sessionId = activeSession.rows[0].session_id;
+
+    const result = await pool.query(
+      `SELECT notification_id, type, timestamp, session_id, message
+       FROM notifications
+       WHERE session_id = $1
+       ORDER BY timestamp DESC
+       LIMIT 10`,
+      [sessionId]
+    );
 
     res.json({
       success: true,

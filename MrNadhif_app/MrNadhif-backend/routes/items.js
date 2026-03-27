@@ -2,13 +2,43 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 
+// helper: get active session
+const getActiveSession = async (robotId = 1) => {
+  const result = await pool.query(
+    `SELECT session_id, beach_cleaned, status, start_time
+     FROM cleaning_sessions
+     WHERE robot_id = $1 AND status IN ('in_progress', 'paused')
+     ORDER BY start_time DESC
+     LIMIT 1`,
+    [robotId]
+  );
+
+  return result.rows[0] || null;
+};
 
 // POST /api/items/log
-// Used to insert a new detected item into the database
-// edit the insertion
 router.post('/log', async (req, res) => {
   try {
-    const { category, location_lat, location_lng, image_url, status, session_id } = req.body;
+    let { category, location_lat, location_lng, image_url, status, session_id } = req.body;
+
+    if (!category) {
+      return res.status(400).json({
+        success: false,
+        message: 'category is required'
+      });
+    }
+
+    if (!session_id) {
+      const activeSession = await getActiveSession(1);
+      session_id = activeSession ? activeSession.session_id : null;
+    }
+
+    if (!session_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'No active cleaning session found for this item'
+      });
+    }
 
     const result = await pool.query(
       `INSERT INTO item_records (
@@ -19,12 +49,11 @@ router.post('/log', async (req, res) => {
         location_lng,
         image_url,
         status
-        //
       )
-       VALUES ($1, $2, NOW(), $3, $4, $5, $6)
-       RETURNING *`,
+      VALUES ($1, $2, NOW(), $3, $4, $5, $6)
+      RETURNING *`,
       [
-        session_id || null,
+        session_id,
         category,
         location_lat !== undefined ? location_lat : null,
         location_lng !== undefined ? location_lng : null,
@@ -33,9 +62,25 @@ router.post('/log', async (req, res) => {
       ]
     );
 
+    const insertedItem = result.rows[0];
+    const normalizedCategory = String(insertedItem.category).toLowerCase();
+    const valuableCategories = ['sunglasses', 'watches', 'wallets'];
+
+    if (valuableCategories.includes(normalizedCategory)) {
+      await pool.query(
+        `INSERT INTO notifications (type, timestamp, session_id, message)
+         VALUES ($1, NOW(), $2, $3)`,
+        [
+          'valuable_item_found',
+          insertedItem.session_id,
+          `${insertedItem.category} detected and added to lost & found`
+        ]
+      );
+    }
+
     res.json({
       success: true,
-      record: result.rows[0]
+      record: insertedItem
     });
 
   } catch (error) {
@@ -47,9 +92,7 @@ router.post('/log', async (req, res) => {
   }
 });
 
-
 // GET /api/items/valuables
-// Returns valuable items for the Lost & Found screen
 router.get('/valuables', async (req, res) => {
   try {
     const result = await pool.query(
@@ -66,7 +109,7 @@ router.get('/valuables', async (req, res) => {
        FROM item_records ir
        LEFT JOIN cleaning_sessions cs
          ON ir.session_id = cs.session_id
-       WHERE LOWER(ir.category) IN ('sunglasses', 'watches', 'wallets', 'keys')
+       WHERE LOWER(ir.category) IN ('sunglasses', 'watches', 'wallets')
        ORDER BY ir.timestamp DESC`
     );
 

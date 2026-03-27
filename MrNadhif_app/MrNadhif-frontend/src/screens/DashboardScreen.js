@@ -6,13 +6,15 @@ import {
   Settings,
   Play,
   AlertTriangle,
-  BatteryLow,
   Home,
   BarChart2,
   Gamepad2,
   Search,
-  Pause,
-  Bell
+  Bell,
+  MapPin,
+  PauseCircle,
+  Activity,
+  Clock3,
 } from 'lucide-react';
 
 function DashboardScreen() {
@@ -21,6 +23,8 @@ function DashboardScreen() {
   const [userEmail, setUserEmail] = useState('');
   const [bins, setBins] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [currentSession, setCurrentSession] = useState(null);
+  const [robotStatus, setRobotStatus] = useState(null);
 
   useEffect(() => {
     const isLoggedIn = localStorage.getItem('isLoggedIn');
@@ -28,6 +32,7 @@ function DashboardScreen() {
 
     if (!isLoggedIn) {
       navigate('/');
+      return;
     } else {
       setUserEmail(email || '');
     }
@@ -48,15 +53,51 @@ function DashboardScreen() {
         const data = await res.json();
 
         if (data.success) {
-          setNotifications(data.notifications);
+          setNotifications(data.notifications || []);
         }
       } catch (err) {
         console.error('Failed to fetch notifications:', err);
       }
     };
 
-    fetchBins();
-    fetchNotifications();
+    const fetchCurrentSession = async () => {
+      try {
+        const res = await fetch('http://localhost:5000/api/robot/current-session');
+        const data = await res.json();
+
+        if (data.success) {
+          setCurrentSession(data.session || null);
+        }
+      } catch (err) {
+        console.error('Failed to fetch current session:', err);
+      }
+    };
+
+    const fetchRobotStatus = async () => {
+      try {
+        const res = await fetch('http://localhost:5000/api/robot/status');
+        const data = await res.json();
+
+        if (data.success) {
+          setRobotStatus(data.robot || null);
+        }
+      } catch (err) {
+        console.error('Failed to fetch robot status:', err);
+      }
+    };
+
+    const fetchAll = () => {
+      fetchBins();
+      fetchNotifications();
+      fetchCurrentSession();
+      fetchRobotStatus();
+    };
+
+    fetchAll();
+
+    const interval = setInterval(fetchAll, 5000);
+
+    return () => clearInterval(interval);
   }, [navigate]);
 
   const handleLogout = () => {
@@ -65,32 +106,60 @@ function DashboardScreen() {
     navigate('/');
   };
 
+  const normalizeNotificationType = (type) => {
+    if (!type) return '';
+
+    return String(type)
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '_');
+  };
+
   const getNotificationTitle = (type) => {
-    if (!type) return 'Notification';
+    const normalized = normalizeNotificationType(type);
 
-    const normalized = type.toLowerCase();
+    const titleMap = {
+      obstacle_detected: 'Obstacle Detected',
+      obstacle_cleared: 'Obstacle Cleared',
+      valuable_item_found: 'Valuable Item Found',
+    };
 
-    if (normalized === 'alert') return 'Alert';
-    if (normalized === 'warning') return 'Warning';
-    if (normalized === 'obstacle_detected') return 'Obstacle Detected';
-    if (normalized === 'operation_started') return 'Operation Started';
-    if (normalized === 'paused') return 'Cleaning Paused';
-
-    return type.replace(/_/g, ' ');
+    return titleMap[normalized] || String(type).replace(/_/g, ' ');
   };
 
   const getNotificationIcon = (type) => {
-    if (!type) return <Bell size={18} />;
+    const normalized = normalizeNotificationType(type);
 
-    const normalized = type.toLowerCase();
+    const iconMap = {
+      obstacle_detected: <AlertTriangle size={18} />,
+      obstacle_cleared: <Play size={18} />,
+      valuable_item_found: <Search size={18} />,
+    };
 
-    if (normalized === 'alert') return <AlertTriangle size={18} />;
-    if (normalized === 'warning') return <BatteryLow size={18} />;
-    if (normalized === 'obstacle_detected') return <AlertTriangle size={18} />;
-    if (normalized === 'operation_started') return <Play size={18} />;
-    if (normalized === 'paused') return <Pause size={18} />;
+    return iconMap[normalized] || <Bell size={18} />;
+  };
 
-    return <Bell size={18} />;
+  const getSessionStatusLabel = (status) => {
+    if (!status) return 'No Active Session';
+
+    const normalized = String(status).toLowerCase();
+
+    if (normalized === 'in_progress') return 'Running';
+    if (normalized === 'paused') return 'Paused';
+    if (normalized === 'completed') return 'Completed';
+
+    return status.replace(/_/g, ' ');
+  };
+
+  const getSessionStatusIcon = (status) => {
+    if (!status) return <Activity size={18} />;
+
+    const normalized = String(status).toLowerCase();
+
+    if (normalized === 'in_progress') return <Play size={18} />;
+    if (normalized === 'paused') return <PauseCircle size={18} />;
+
+    return <Activity size={18} />;
   };
 
   return (
@@ -107,13 +176,100 @@ function DashboardScreen() {
         Welcome, {userEmail}!
       </div>
 
+      {/* Current Robot Activity */}
+      <div className="section">
+        <h2 className="section-title">Current Robot Activity</h2>
+
+        {!currentSession ? (
+          <div className="activity-card-empty">
+            No active cleaning session
+          </div>
+        ) : (
+          <div className="robot-activity-card">
+            <div className="robot-activity-row">
+              <div className="robot-activity-icon">
+                <MapPin size={18} />
+              </div>
+              <div className="robot-activity-content">
+                <div className="robot-activity-label">Active Beach</div>
+                <div className="robot-activity-value">
+                  {currentSession.beach_cleaned}
+                </div>
+              </div>
+            </div>
+
+            <div className="robot-activity-row">
+              <div className="robot-activity-icon">
+                {getSessionStatusIcon(currentSession.status)}
+              </div>
+              <div className="robot-activity-content">
+                <div className="robot-activity-label">Session Status</div>
+                <div className="robot-activity-value">
+                  {getSessionStatusLabel(currentSession.status)}
+                </div>
+              </div>
+            </div>
+
+            <div className="robot-activity-row">
+              <div className="robot-activity-icon">
+                <Clock3 size={18} />
+              </div>
+              <div className="robot-activity-content">
+                <div className="robot-activity-label">Started At</div>
+                <div className="robot-activity-value">
+                  {new Date(currentSession.start_time).toLocaleString()}
+                </div>
+              </div>
+            </div>
+
+            <div className="robot-activity-row">
+              <div className="robot-activity-icon">
+                <Activity size={18} />
+              </div>
+              <div className="robot-activity-content">
+                <div className="robot-activity-label">Session ID</div>
+                <div className="robot-activity-value">
+                  #{currentSession.session_id}
+                </div>
+              </div>
+            </div>
+
+            <div className="robot-activity-row">
+              <div className="robot-activity-icon">
+                <Bell size={18} />
+              </div>
+              <div className="robot-activity-content">
+                <div className="robot-activity-label">Robot Status</div>
+                <div className="robot-activity-value">
+                  {robotStatus?.status || 'Unknown'}
+                </div>
+              </div>
+            </div>
+
+            {/* GPS placeholder for future backend support */}
+            <div className="robot-activity-row">
+              <div className="robot-activity-icon">
+                <MapPin size={18} />
+              </div>
+              <div className="robot-activity-content">
+                <div className="robot-activity-label">Current GPS</div>
+                <div className="robot-activity-value">
+                  Not connected yet
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Operational Alerts */}
       <div className="section">
         <h2 className="section-title">Operational Alerts</h2>
 
         {notifications.length === 0 ? (
           <div className="alert-text">No alerts available</div>
         ) : (
-          notifications.slice(0, 3).map((notification) => (
+          notifications.slice(0, 5).map((notification) => (
             <div className="alert-item" key={notification.notification_id}>
               <div className="alert-icon blue">
                 {getNotificationIcon(notification.type)}
@@ -132,40 +288,7 @@ function DashboardScreen() {
         )}
       </div>
 
-      <div className="section">
-        <h2 className="section-title">Robot Activity Log</h2>
-
-        <div className="activity-timeline">
-          {notifications.length === 0 ? (
-            <div className="activity-content">
-              <div className="activity-heading">No activity found</div>
-            </div>
-          ) : (
-            notifications.map((notification, index) => (
-              <div className="activity-item" key={notification.notification_id}>
-                <div className="activity-icon">
-                  {getNotificationIcon(notification.type)}
-                </div>
-
-                {index !== notifications.length - 1 && (
-                  <div className="activity-line"></div>
-                )}
-
-                <div className="activity-content">
-                  <div className="activity-heading">
-                    {getNotificationTitle(notification.type)}
-                  </div>
-                  <div className="alert-text">{notification.message}</div>
-                  <div className="activity-time">
-                    {new Date(notification.timestamp).toLocaleString()}
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-
+      {/* Current Status Overview */}
       <div className="section">
         <h2 className="section-title">Current Status Overview</h2>
 

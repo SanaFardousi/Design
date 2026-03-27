@@ -1,10 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import './Schedulescreen .css'; // (keeping your original path as-is)
+import './Schedulescreen .css';
 
-// Lucide SVG icons
 import {
-  Calendar,
   CheckCircle2,
   ChevronDown,
   Home,
@@ -16,12 +14,13 @@ import {
 function ScheduleScreen() {
   const navigate = useNavigate();
 
-  const [selectedDay, setSelectedDay] = useState(3); // Thu default
+  const [selectedDay, setSelectedDay] = useState(3);
   const [beach, setBeach] = useState('');
   const [date, setDate] = useState('');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const days = [
     { label: 'Mon', num: '02' },
@@ -33,28 +32,61 @@ function ScheduleScreen() {
     { label: 'Sun', num: '08' },
   ];
 
-  const beaches = ['Fintas Beach', 'Shuwaikh Beach', 'Egaila Beach', 'Abu Al Hasaniya Beach'];
+  const beaches = [
+    'Salmyia Beach',
+    'Fintas Beach',
+    'Egaila Beach',
+  ];
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!beach || !date || !startTime || !endTime) {
       alert('Please fill in all fields.');
       return;
     }
-    setSaved(true);
-    setTimeout(() => {
-      setSaved(false);
-      navigate('/robot-control');
-    }, 1500);
+
+    try {
+      setSaving(true);
+
+      const res = await fetch('http://localhost:5000/api/robot/schedule', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          beach_name: beach,
+          date,
+          start_time: startTime,
+          end_time: endTime,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Failed to save schedule');
+      }
+
+      setSaved(true);
+
+      setTimeout(() => {
+        setSaved(false);
+        navigate('/robot-control');
+      }, 1200);
+
+    } catch (error) {
+      console.error('Error saving schedule:', error);
+      alert(error.message || 'Server error while saving schedule');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div className="sched-container">
-      {/* Header */}
       <div className="sched-header">
         <div className="sched-header-title">Schedule Cleaning</div>
       </div>
 
-      {/* Day Picker */}
       <div className="sched-day-row">
         {days.map((d, i) => (
           <div
@@ -68,14 +100,13 @@ function ScheduleScreen() {
         ))}
       </div>
 
-      {/* Beach Select */}
       <div className="sched-section">
         <div className="sched-section-title">Select Target Beach</div>
         <div className="sched-select-wrapper">
           <select
             className="sched-select"
             value={beach}
-            onChange={e => setBeach(e.target.value)}
+            onChange={(e) => setBeach(e.target.value)}
           >
             <option value="">Choose Beach</option>
             {beaches.map((b, i) => (
@@ -89,52 +120,56 @@ function ScheduleScreen() {
         </div>
       </div>
 
-      {/* Start Time */}
       <div className="sched-section">
-        <div className="sched-section-title">Start Time</div>
+        <div className="sched-section-title">Schedule Time</div>
+
         <input
           type="date"
           className="sched-input"
           value={date}
-          onChange={e => setDate(e.target.value)}
+          onChange={(e) => setDate(e.target.value)}
         />
+
         <div className="sched-time-row">
           <div className="sched-time-wrapper">
             <input
               type="time"
               className="sched-input sched-time-input"
-              placeholder="Start time"
               value={startTime}
-              onChange={e => setStartTime(e.target.value)}
+              onChange={(e) => setStartTime(e.target.value)}
             />
           </div>
+
           <div className="sched-time-wrapper">
             <input
               type="time"
               className="sched-input sched-time-input"
-              placeholder="End time"
               value={endTime}
-              onChange={e => setEndTime(e.target.value)}
+              onChange={(e) => setEndTime(e.target.value)}
             />
           </div>
         </div>
       </div>
 
-      {/* Save Button */}
       <div className="sched-save-wrapper">
-        <button className={`sched-save-btn ${saved ? 'sched-saved' : ''}`} onClick={handleSave}>
+        <button
+          className={`sched-save-btn ${saved ? 'sched-saved' : ''}`}
+          onClick={handleSave}
+          disabled={saving}
+        >
           {saved ? (
             <span className="sched-saved-content">
               <CheckCircle2 size={18} />
               <span>Saved!</span>
             </span>
+          ) : saving ? (
+            'Saving...'
           ) : (
             'Save'
           )}
         </button>
       </div>
 
-      {/* Bottom Navigation */}
       <div className="bottom-nav">
         <div className="nav-item" onClick={() => navigate('/dashboard')}>
           <div className="nav-icon" aria-hidden="true">
