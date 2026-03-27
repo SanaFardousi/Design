@@ -204,7 +204,7 @@ function RobotControlScreen() {
           <div className="rc-session-details">
             <div className="rc-session-row">
               <Map size={16} />
-              <span><strong>Beach:</strong> {latestSchedule.beach_name}</span>
+              <span><strong>Beach:</strong> {latestSchedule.beach_name || 'No beach selected'}</span>
             </div>
 
             <div className="rc-session-row">
