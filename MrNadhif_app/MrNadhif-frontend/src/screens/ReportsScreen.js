@@ -11,7 +11,6 @@ import {
   ResponsiveContainer
 } from 'recharts';
 
-// Import SVG icons (same style used in Dashboard)
 import {
   Settings,
   Home,
@@ -24,6 +23,8 @@ import './ReportsScreen.css';
 
 function ReportsScreen() {
   const navigate = useNavigate();
+
+  const [selectedBeach, setSelectedBeach] = useState('All Beaches');
 
   const [summaryData, setSummaryData] = useState({
     valuables: 0,
@@ -40,6 +41,13 @@ function ReportsScreen() {
 
   const [loading, setLoading] = useState(true);
 
+  const beaches = [
+    'All Beaches',
+    'Kuwait City Beach',
+    'Fintas Beach',
+    'Egaila Beach'
+  ];
+
   useEffect(() => {
     const isLoggedIn = localStorage.getItem('isLoggedIn');
 
@@ -50,9 +58,16 @@ function ReportsScreen() {
 
     const fetchReports = async () => {
       try {
+        setLoading(true);
+
+        const query =
+          selectedBeach === 'All Beaches'
+            ? ''
+            : `?beach=${encodeURIComponent(selectedBeach)}`;
+
         const [summaryRes, trendsRes] = await Promise.all([
-          fetch('http://localhost:5000/api/reports/summary'),
-          fetch('http://localhost:5000/api/reports/trends')
+          fetch(`http://localhost:5000/api/reports/summary${query}`),
+          fetch(`http://localhost:5000/api/reports/trends${query}`)
         ]);
 
         const summary = await summaryRes.json();
@@ -78,11 +93,16 @@ function ReportsScreen() {
     };
 
     fetchReports();
-  }, [navigate]);
+  }, [navigate, selectedBeach]);
 
   const handleDownloadReport = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/reports/download');
+      const query =
+        selectedBeach === 'All Beaches'
+          ? ''
+          : `?beach=${encodeURIComponent(selectedBeach)}`;
+
+      const response = await fetch(`http://localhost:5000/api/reports/download${query}`);
 
       if (!response.ok) {
         throw new Error('Failed to download report');
@@ -93,7 +113,11 @@ function ReportsScreen() {
 
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'pollution-report.pdf';
+      link.download =
+        selectedBeach === 'All Beaches'
+          ? 'pollution-report-all-beaches.pdf'
+          : `pollution-report-${selectedBeach.replace(/\s+/g, '-').toLowerCase()}.pdf`;
+
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -119,8 +143,8 @@ function ReportsScreen() {
       );
     }
 
-    const firstWeek = data[0].count;
-    const lastWeek = data[data.length - 1].count;
+    const firstWeek = Number(data[0].count);
+    const lastWeek = Number(data[data.length - 1].count);
 
     const change =
       firstWeek === 0
@@ -166,7 +190,6 @@ function ReportsScreen() {
 
   return (
     <div className="reports-container">
-      {/* HEADER SECTION */}
       <div className="reports-header">
         <div className="header-title">Reports</div>
 
@@ -181,7 +204,21 @@ function ReportsScreen() {
         </div>
       </div>
 
-      {/* SUMMARY CARDS */}
+      <div className="reports-filter-section">
+        <label className="reports-filter-label">Select Beach</label>
+        <select
+          className="reports-filter-select"
+          value={selectedBeach}
+          onChange={(e) => setSelectedBeach(e.target.value)}
+        >
+          {beaches.map((beach) => (
+            <option key={beach} value={beach}>
+              {beach}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div className="summary-section">
         <div className="summary-card">
           <div className="summary-label">Valuables</div>
@@ -204,16 +241,16 @@ function ReportsScreen() {
         </div>
       </div>
 
-      {/* TRENDS SECTION */}
       <div className="trends-section">
-        <h2 className="section-title">Weekly Trends</h2>
+        <h2 className="section-title">
+          Weekly Trends {selectedBeach !== 'All Beaches' ? `— ${selectedBeach}` : ''}
+        </h2>
 
         {renderChart(chartData.valuables, '#9B59B6', 'Valuables')}
         {renderChart(chartData.plastic, '#E74C3C', 'Plastic')}
         {renderChart(chartData.metal, '#95A5A6', 'Metal')}
       </div>
 
-      {/* BOTTOM NAVIGATION */}
       <div className="bottom-nav">
         <div className="nav-item" onClick={() => navigate('/dashboard')}>
           <div className="nav-icon">

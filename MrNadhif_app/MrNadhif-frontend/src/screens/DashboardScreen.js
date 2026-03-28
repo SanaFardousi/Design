@@ -15,6 +15,7 @@ import {
   PauseCircle,
   Activity,
   Clock3,
+  Square,
 } from 'lucide-react';
 
 function DashboardScreen() {
@@ -25,6 +26,7 @@ function DashboardScreen() {
   const [notifications, setNotifications] = useState([]);
   const [currentSession, setCurrentSession] = useState(null);
   const [robotStatus, setRobotStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const isLoggedIn = localStorage.getItem('isLoggedIn');
@@ -33,30 +35,17 @@ function DashboardScreen() {
     if (!isLoggedIn) {
       navigate('/');
       return;
-    } else {
-      setUserEmail(email || '');
     }
+
+    setUserEmail(email || '');
 
     const fetchBins = async () => {
       try {
         const res = await fetch('http://localhost:5000/api/bins');
         const data = await res.json();
-        setBins(data);
+        setBins(Array.isArray(data) ? data : []);
       } catch (err) {
         console.error('Failed to fetch bins:', err);
-      }
-    };
-
-    const fetchNotifications = async () => {
-      try {
-        const res = await fetch('http://localhost:5000/api/notifications');
-        const data = await res.json();
-
-        if (data.success) {
-          setNotifications(data.notifications || []);
-        }
-      } catch (err) {
-        console.error('Failed to fetch notifications:', err);
       }
     };
 
@@ -67,9 +56,36 @@ function DashboardScreen() {
 
         if (data.success) {
           setCurrentSession(data.session || null);
+          return data.session || null;
         }
+
+        setCurrentSession(null);
+        return null;
       } catch (err) {
         console.error('Failed to fetch current session:', err);
+        setCurrentSession(null);
+        return null;
+      }
+    };
+
+    const fetchNotifications = async (hasActiveSession) => {
+      try {
+        if (!hasActiveSession) {
+          setNotifications([]);
+          return;
+        }
+
+        const res = await fetch('http://localhost:5000/api/notifications');
+        const data = await res.json();
+
+        if (data.success) {
+          setNotifications(data.notifications || []);
+        } else {
+          setNotifications([]);
+        }
+      } catch (err) {
+        console.error('Failed to fetch notifications:', err);
+        setNotifications([]);
       }
     };
 
@@ -80,23 +96,32 @@ function DashboardScreen() {
 
         if (data.success) {
           setRobotStatus(data.robot || null);
+        } else {
+          setRobotStatus(null);
         }
       } catch (err) {
         console.error('Failed to fetch robot status:', err);
+        setRobotStatus(null);
       }
     };
 
-    const fetchAll = () => {
-      fetchBins();
-      fetchNotifications();
-      fetchCurrentSession();
-      fetchRobotStatus();
+    const fetchAll = async () => {
+      try {
+        const session = await fetchCurrentSession();
+
+        await Promise.all([
+          fetchBins(),
+          fetchRobotStatus(),
+          fetchNotifications(!!session),
+        ]);
+      } finally {
+        setLoading(false);
+      }
     };
 
     fetchAll();
 
     const interval = setInterval(fetchAll, 5000);
-
     return () => clearInterval(interval);
   }, [navigate]);
 
@@ -158,8 +183,21 @@ function DashboardScreen() {
 
     if (normalized === 'in_progress') return <Play size={18} />;
     if (normalized === 'paused') return <PauseCircle size={18} />;
+    if (normalized === 'completed') return <Square size={18} />;
 
     return <Activity size={18} />;
+  };
+
+  const getRobotStatusLabel = (status) => {
+    if (!status) return 'Unknown';
+
+    const normalized = String(status).toLowerCase();
+
+    if (normalized === 'cleaning') return 'Cleaning';
+    if (normalized === 'paused') return 'Paused';
+    if (normalized === 'idle') return 'Idle';
+
+    return status;
   };
 
   return (
@@ -180,7 +218,9 @@ function DashboardScreen() {
       <div className="section">
         <h2 className="section-title">Current Robot Activity</h2>
 
-        {!currentSession ? (
+        {loading ? (
+          <div className="activity-card-empty">Loading current session...</div>
+        ) : !currentSession ? (
           <div className="activity-card-empty">
             No active cleaning session
           </div>
@@ -193,7 +233,7 @@ function DashboardScreen() {
               <div className="robot-activity-content">
                 <div className="robot-activity-label">Active Beach</div>
                 <div className="robot-activity-value">
-                  {currentSession.beach_cleaned}
+                  {currentSession.beach_cleaned || 'Unknown Beach'}
                 </div>
               </div>
             </div>
@@ -217,7 +257,9 @@ function DashboardScreen() {
               <div className="robot-activity-content">
                 <div className="robot-activity-label">Started At</div>
                 <div className="robot-activity-value">
-                  {new Date(currentSession.start_time).toLocaleString()}
+                  {currentSession.start_time
+                    ? new Date(currentSession.start_time).toLocaleString()
+                    : 'N/A'}
                 </div>
               </div>
             </div>
@@ -241,12 +283,11 @@ function DashboardScreen() {
               <div className="robot-activity-content">
                 <div className="robot-activity-label">Robot Status</div>
                 <div className="robot-activity-value">
-                  {robotStatus?.status || 'Unknown'}
+                  {getRobotStatusLabel(robotStatus?.status)}
                 </div>
               </div>
             </div>
 
-            {/* GPS placeholder for future backend support */}
             <div className="robot-activity-row">
               <div className="robot-activity-icon">
                 <MapPin size={18} />
@@ -266,7 +307,11 @@ function DashboardScreen() {
       <div className="section">
         <h2 className="section-title">Operational Alerts</h2>
 
-        {notifications.length === 0 ? (
+        {loading ? (
+          <div className="alert-text">Loading alerts...</div>
+        ) : !currentSession ? (
+          <div className="alert-text">No alerts available</div>
+        ) : notifications.length === 0 ? (
           <div className="alert-text">No alerts available</div>
         ) : (
           notifications.slice(0, 5).map((notification) => (
@@ -307,7 +352,9 @@ function DashboardScreen() {
             <div className="status-left">
               <div className="status-label">{bin.label} Bin</div>
               <div className="status-sublabel">
-                Last updated: {new Date(bin.updated_at).toLocaleTimeString()}
+                Last updated: {bin.updated_at
+                  ? new Date(bin.updated_at).toLocaleTimeString()
+                  : 'N/A'}
               </div>
             </div>
             <div className={`status-value ${bin.is_full ? 'full' : ''}`}>

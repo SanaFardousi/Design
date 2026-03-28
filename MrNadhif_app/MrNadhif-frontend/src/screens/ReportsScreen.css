@@ -194,3 +194,26 @@
 .download-button:hover {
   background-color: #256428;
 }
+.reports-filter-section {
+  margin: 16px 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reports-filter-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+}
+
+.reports-filter-select {
+  width: 100%;
+  max-width: 280px;
+  padding: 10px 14px;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  font-size: 14px;
+  background: white;
+  outline: none;
+}
