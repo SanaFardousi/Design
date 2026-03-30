@@ -45,4 +45,32 @@ router.get('/', async (req, res) => {
   }
 });
 
+// POST /api/notifications
+router.post('/', async (req, res) => {
+  try {
+    const { type, message } = req.body;
+
+    const activeSession = await pool.query(
+      `SELECT session_id FROM cleaning_sessions
+       WHERE robot_id = $1 AND status IN ('in_progress', 'paused')
+       ORDER BY start_time DESC LIMIT 1`,
+      [1]
+    );
+
+    const sessionId = activeSession.rows[0]?.session_id || null;
+
+    await pool.query(
+      `INSERT INTO notifications (type, timestamp, session_id, message)
+       VALUES ($1, NOW(), $2, $3)`,
+      [type, sessionId, message]
+    );
+
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error('Error inserting notification:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 module.exports = router;

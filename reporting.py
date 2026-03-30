@@ -11,7 +11,7 @@ from datetime import datetime
 from picamera2 import Picamera2
 
 # ── Backend config ────────────────────────────
-BASE_URL = 'http://172.20.10.6:5000'
+BASE_URL = 'http://172.20.10.2:5000'
 API_KEY  = 'test123'
 
 logging.basicConfig(
@@ -24,6 +24,9 @@ log = logging.getLogger(__name__)
 current_lat  = None
 current_lng  = None
 motor_serial = None
+
+last_detected = {}          # category → last detection timestamp
+DETECTION_COOLDOWN = 10     # seconds
 
 # ── Servo char map ────────────────────────────
 SERVO_CHAR = {
@@ -151,6 +154,10 @@ def on_valuable_inserted():
     log.info("Valuable item detected!")
     log_item('valuable')
     send_servo('valuable')
+    post('/api/notifications', {
+        'type': 'valuable_item_found',
+        'message': 'Valuable item detected by bin sensor'
+    })
 
 def on_valuable_bin_full():
     log.warning("Valuable bin is FULL")
@@ -518,18 +525,22 @@ def main():
                                 arduino.send(char)
                             send_servo(category)
 
-                            # For valuables: upload image then log with URL
-                            if category in VALUABLE_CATEGORIES:
-                                image_url = upload_image(temp_path, category, det["confidence"])
-                                log_item(category, image_url=image_url)
+                            # Cooldown check — skip if detected recently
+                            now = time.time()
+                            if category in last_detected and (now - last_detected[category]) < DETECTION_COOLDOWN:
+                                log.info(f"Skipping {category} — cooldown active")
                             else:
-                                log_item(category)
+                                last_detected[category] = now
 
-                            if category == 'metal':
-                                image_url = upload_image(temp_path, category, det["confidence"])
-                                log_item(category, image_url=image_url)
-                            else:
-                                log_item(category)
+                                if category in VALUABLE_CATEGORIES:
+                                    image_url = upload_image(temp_path, category, det["confidence"])
+                                    log_item(category, image_url=image_url)
+                                    post('/api/robot/notifications', {
+                                        'type': 'valuable_item_found',
+                                        'message': f'Camera detected a valuable item: {category}'
+                                    })
+                                else:
+                                    log_item(category)
 
                         current_detections.append(det)
 

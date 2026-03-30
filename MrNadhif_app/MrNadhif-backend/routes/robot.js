@@ -336,4 +336,37 @@ router.post('/obstacle/cleared', async (req, res) => {
   }
 });
 
+// valuable item found notification
+router.post('/notifications', async (req, res) => {
+  try {
+    const { type, message } = req.body;
+    const activeSession = await getActiveSession(1);
+
+    if (!activeSession) {
+      return res.status(400).json({
+        success: false,
+        message: 'No active cleaning session found'
+      });
+    }
+
+    const inserted = await insertNotificationIfNotDuplicate({
+      type: type,
+      sessionId: activeSession.session_id,
+      message: message
+    });
+
+    res.json({
+      success: true,
+      inserted,
+      session_id: activeSession.session_id
+    });
+  } catch (error) {
+    console.error('Error inserting notification:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+});
+
 module.exports = router;
