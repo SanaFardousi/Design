@@ -159,7 +159,7 @@ router.get('/download', async (req, res) => {
       params.push(beach);
     }
 
-    // Get summary statistics
+    // 1. SUMMARY DATA
     const summaryQuery = `
       SELECT
         COUNT(*) FILTER (WHERE LOWER(ir.category) = 'plastic') AS plastic,
@@ -175,137 +175,238 @@ router.get('/download', async (req, res) => {
     `;
 
     const summaryResult = await pool.query(summaryQuery, params);
-
-    // Extract summary data
     const summary = summaryResult.rows[0];
 
-    // Step 2: Get bin status data
-    const binsQuery = `
-      SELECT bin_id, label, is_full, updated_at
-      FROM bin_status
-      WHERE label != 'Other'
-      ORDER BY bin_id
+    const plastic = Number(summary.plastic) || 0;
+    const metal = Number(summary.metal) || 0;
+    const valuables = Number(summary.valuables) || 0;
+    const total = Number(summary.total) || 0;
+
+
+    const score = Math.max(0, 100 - total * 0.5);
+    let status = 'Clean';
+
+    if (score < 70) status = 'Moderate Pollution';
+    if (score < 40) status = 'Highly Polluted';
+
+    let scoreColor = '#2E8B57';
+    if (score < 70) scoreColor = '#F39C12';
+    if (score < 40) scoreColor = '#E74C3C';
+
+ 
+    const hotspotQuery = `
+      SELECT
+        CASE
+          WHEN ir.location_lat > 29.35 THEN 'North Zone'
+          WHEN ir.location_lat BETWEEN 29.30 AND 29.35 THEN 'Central Zone'
+          ELSE 'South Zone'
+        END AS zone,
+        COUNT(*) AS count
+      FROM item_records ir
+      LEFT JOIN cleaning_sessions cs
+        ON ir.session_id = cs.session_id
+      ${condition}
+      GROUP BY zone
+      ORDER BY count DESC
+      LIMIT 1
     `;
 
-    const binsResult = await pool.query(binsQuery);
-    const bins = binsResult.rows;
+    const hotspotResult = await pool.query(hotspotQuery, params);
+    const hotspot = hotspotResult.rows[0];
 
-    // Create PDF document
+    let mostCommon = 'None';
+    const maxCount = Math.max(plastic, metal, valuables);
+
+    if (maxCount > 0) {
+      if (maxCount === plastic) mostCommon = 'Plastic';
+      else if (maxCount === metal) mostCommon = 'Metal';
+      else mostCommon = 'Valuables';
+    }
+
+    const percent = (val) => (total ? ((val / total) * 100).toFixed(1) : 0);
+
+    //  PDF SETUP
     const doc = new PDFDocument({ margin: 50, size: 'A4' });
 
-    // Generate file name with current date
-    const safeBeachName = beach
-      ? beach.replace(/\s+/g, '-').toLowerCase()
-      : 'all-beaches';
+    const fileName = `report-${(beach || 'all-beaches')
+      .replace(/\s+/g, '-')
+      .toLowerCase()}.pdf`;
 
-    const fileName = `pollution-report-${safeBeachName}-${new Date().toISOString().split('T')[0]}.pdf`;
-
-    // Tell browser this is a PDF file
     res.setHeader('Content-Type', 'application/pdf');
-
-    // Force file download
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
 
-    // Pipe PDF output to response
     doc.pipe(res);
 
-    // PDF Title Section
-    doc
-      .fontSize(20)
-      .text('Pollution Monitoring Report', { align: 'center' });
+    const drawSectionTitle = (title, color = '#0F4C81') => {
+      doc
+        .moveDown(0.8)
+        .fontSize(15)
+        .fillColor(color)
+        .text(title, { underline: false });
+      doc
+        .moveDown(0.2)
+        .strokeColor('#D9E2EC')
+        .lineWidth(1)
+        .moveTo(50, doc.y)
+        .lineTo(545, doc.y)
+        .stroke();
+      doc.moveDown(0.5);
+      doc.fillColor('#1F2937');
+    };
 
-    doc.moveDown(0.5);
+    const drawInfoRow = (label, value) => {
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(11)
+        .fillColor('#334E68')
+        .text(`${label}: `, { continued: true })
+        .font('Helvetica')
+        .fillColor('#1F2937')
+        .text(String(value));
+    };
+
+    const drawColoredBox = (x, y, w, h, fill, stroke = fill) => {
+      doc
+        .save()
+        .roundedRect(x, y, w, h, 10)
+        .fillAndStroke(fill, stroke)
+        .restore();
+    };
+
+    // HEADER
+  
+    drawColoredBox(50, 40, 495, 85, '#EAF4FF', '#C7DFF7');
+
+    doc
+      .font('Helvetica-Bold')
+      .fillColor('#0F4C81')
+      .fontSize(22)
+      .text('Mr. Nadhif Smart Cleaning Report', 70, 58, {
+        width: 455,
+        align: 'center',
+      });
+
+    doc
+      .font('Helvetica')
+      .fontSize(12)
+      .fillColor('#486581')
+      .text(`Beach: ${beach || 'All Beaches'}`, 70, 88, {
+        width: 455,
+        align: 'center',
+      });
 
     doc
       .fontSize(10)
-      .text(`Generated on: ${new Date().toLocaleString()}`, { align: 'center' });
+      .text(`Generated: ${new Date().toLocaleString()}`, 70, 106, {
+        width: 455,
+        align: 'center',
+      });
 
-    doc.moveDown(0.5);
+    doc.moveDown(4);
+
+    // CLEANLINESS SCORE
+    drawSectionTitle('Cleanliness Score');
+
+    const scoreBoxY = doc.y;
+    drawColoredBox(50, scoreBoxY, 495, 70, '#F8FAFC', '#E2E8F0');
 
     doc
+      .font('Helvetica-Bold')
+      .fontSize(20)
+      .fillColor(scoreColor)
+      .text(`${score.toFixed(0)} / 100`, 70, scoreBoxY + 16);
+
+    doc
+      .font('Helvetica-Bold')
       .fontSize(12)
+      .fillColor('#334E68')
+      .text('Status', 220, scoreBoxY + 18);
+
+    doc
+      .font('Helvetica')
+      .fontSize(12)
+      .fillColor('#1F2937')
+      .text(status, 220, scoreBoxY + 36);
+
+    doc.y = scoreBoxY + 85;
+
+    // SUMMARY
+    drawSectionTitle('Summary');
+
+    drawInfoRow('Total Items', total);
+    drawInfoRow('Plastic', plastic);
+    drawInfoRow('Metal', metal);
+    drawInfoRow('Valuables', valuables);
+
+    drawSectionTitle('Pollution Breakdown');
+
+    drawInfoRow('Plastic', `${percent(plastic)}%`);
+    drawInfoRow('Metal', `${percent(metal)}%`);
+    drawInfoRow('Valuables', `${percent(valuables)}%`);
+
+    drawSectionTitle('Hotspot Analysis');
+
+    if (hotspot) {
+      drawInfoRow('Most Polluted Area', hotspot.zone);
+      drawInfoRow('Items Detected', hotspot.count);
+    } else {
+      doc
+        .font('Helvetica')
+        .fontSize(11)
+        .fillColor('#7B8794')
+        .text('No hotspot data available');
+    }
+
+    drawSectionTitle('Insights');
+
+    drawInfoRow('Most Common Waste Type', mostCommon);
+    drawInfoRow('Total Detected Items', total);
+
+    // 
+    drawSectionTitle('Recommendations', '#7C3AED');
+
+    const recBoxY = doc.y;
+    drawColoredBox(50, recBoxY, 495, 95, '#F6F0FF', '#E9D8FD');
+
+    let recY = recBoxY + 14;
+
+    const writeRec = (text) => {
+      doc
+        .font('Helvetica')
+        .fontSize(11)
+        .fillColor('#4C1D95')
+        .text(`• ${text}`, 70, recY, { width: 455 });
+      recY += 20;
+    };
+
+    if (hotspot) {
+      writeRec(`Increase cleaning frequency in ${hotspot.zone}.`);
+    }
+
+    if (plastic > metal) {
+      writeRec('Add more plastic-specific disposal bins and awareness signs.');
+    }
+
+    if (total > 50) {
+      writeRec('Schedule more frequent cleaning sessions for this beach.');
+    }
+
+    writeRec('Monitor peak pollution periods to improve response planning.');
+
+    doc.y = recBoxY + 110;
+
+    // FOOTER
+    doc.moveDown(1.5);
+    doc
+      .font('Helvetica-Oblique')
+      .fontSize(10)
+      .fillColor('#7B8794')
       .text(
-        `Beach: ${beach || 'All Beaches'}`,
+        'Generated automatically by the Mr. Nadhif intelligent cleaning system.',
         { align: 'center' }
       );
 
-    doc.moveDown(2);
-
-    // Summary Section
-    doc
-      .fontSize(16)
-      .text('Summary');
-
-    doc.moveDown(0.5);
-
-    doc.fontSize(12);
-    doc.text(`Plastic items: ${Number(summary.plastic) || 0}`);
-    doc.text(`Metal items: ${Number(summary.metal) || 0}`);
-    doc.text(`Valuable items: ${Number(summary.valuables) || 0}`);
-    doc.text(`Total items found: ${Number(summary.total) || 0}`);
-
-    doc.moveDown(2);
-
-    // Bin Status Section
-    doc
-      .fontSize(16)
-      .text('Bin Status');
-
-    doc.moveDown(0.5);
-    doc.fontSize(12);
-
-    bins.forEach((bin) => {
-      const status = bin.is_full ? 'Full' : 'Not Full';
-      const updatedAt = bin.updated_at
-        ? new Date(bin.updated_at).toLocaleString()
-        : 'N/A';
-
-      doc.text(`${bin.label} Bin: ${status} (Last updated: ${updatedAt})`);
-    });
-
-    doc.moveDown(2);
-
-    // Convert values to numbers
-    const plasticCount = Number(summary.plastic) || 0;
-    const metalCount = Number(summary.metal) || 0;
-    const valuablesCount = Number(summary.valuables) || 0;
-    const totalCount = Number(summary.total) || 0;
-
-    // Determine the most common category
-    let mostCommon = 'None';
-    const maxCount = Math.max(plasticCount, metalCount, valuablesCount);
-
-    if (maxCount > 0) {
-      if (maxCount === plasticCount) {
-        mostCommon = 'Plastic';
-      } else if (maxCount === metalCount) {
-        mostCommon = 'Metal';
-      } else if (maxCount === valuablesCount) {
-        mostCommon = 'Valuables';
-      }
-    }
-
-    doc
-      .fontSize(16)
-      .text('Insights');
-
-    doc.moveDown(0.5);
-    doc.fontSize(12);
-    doc.text(`Most common collected category: ${mostCommon}`);
-    doc.text(`Total detected items in the dataset: ${totalCount}`);
-    doc.text('Extra details will be added soon :)');
-
-    doc.moveDown(2);
-
-    doc
-      .fontSize(10)
-      .text('Generated automatically by the Mr.Nadhif reporting system.', {
-        align: 'center'
-      });
-
-    // Finish generating the PDF
     doc.end();
-
   } catch (error) {
     console.error('Error generating report:', error);
     res.status(500).json({ error: 'Failed to generate report' });

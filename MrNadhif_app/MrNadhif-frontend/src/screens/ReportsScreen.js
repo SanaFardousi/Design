@@ -43,7 +43,7 @@ function ReportsScreen() {
 
   const beaches = [
     'All Beaches',
-    'Kuwait City Beach',
+    'Salmyia Beach',
     'Fintas Beach',
     'Egaila Beach'
   ];
