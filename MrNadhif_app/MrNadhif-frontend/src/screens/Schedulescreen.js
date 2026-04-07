@@ -13,7 +13,7 @@ import {
 
 function ScheduleScreen() {
   const navigate = useNavigate();
-
+// remove the hardcoded days and dates
   const [beach, setBeach] = useState('');
   const [date, setDate] = useState('');
   const [startTime, setStartTime] = useState('');
