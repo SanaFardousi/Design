@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 
-// helper: get current active session
+//get current active session
 const getActiveSession = async (robotId = 1) => {
   const result = await pool.query(
     `SELECT session_id, beach_cleaned, status, start_time
@@ -16,7 +16,7 @@ const getActiveSession = async (robotId = 1) => {
   return result.rows[0] || null;
 };
 
-// helper: insert notification only if it is not an immediate duplicate
+// insert notification only if it is not an immediate duplicate
 const insertNotificationIfNotDuplicate = async ({ type, sessionId, message }) => {
   const lastNotification = await pool.query(
     `SELECT type, message
@@ -164,6 +164,14 @@ router.get('/current-session', async (req, res) => {
   }
 });
 
+
+
+
+
+
+
+
+
 // START actual cleaning session
 router.post('/start', async (req, res) => {
   try {
@@ -244,6 +252,11 @@ router.post('/pause', async (req, res) => {
     });
   }
 });
+
+
+
+
+
 
 // STOP session
 router.post('/stop', async (req, res) => {
