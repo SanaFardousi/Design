@@ -14,23 +14,11 @@ import {
 function ScheduleScreen() {
   const navigate = useNavigate();
 
-  const [selectedDay, setSelectedDay] = useState(3);
   const [beach, setBeach] = useState('');
   const [date, setDate] = useState('');
   const [startTime, setStartTime] = useState('');
-  const [endTime, setEndTime] = useState('');
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
-
-  const days = [
-    { label: 'Mon', num: '02' },
-    { label: 'Tue', num: '03' },
-    { label: 'Wed', num: '04' },
-    { label: 'Thu', num: '07' },
-    { label: 'Fri', num: '05' },
-    { label: 'Sat', num: '06' },
-    { label: 'Sun', num: '08' },
-  ];
 
   const beaches = [
     'Salmyia Beach',
@@ -39,7 +27,7 @@ function ScheduleScreen() {
   ];
 
   const handleSave = async () => {
-    if (!beach || !date || !startTime || !endTime) {
+    if (!beach || !date || !startTime) {
       alert('Please fill in all fields.');
       return;
     }
@@ -56,7 +44,6 @@ function ScheduleScreen() {
           beach_name: beach,
           date,
           start_time: startTime,
-          end_time: endTime,
         }),
       });
 
@@ -85,19 +72,6 @@ function ScheduleScreen() {
     <div className="sched-container">
       <div className="sched-header">
         <div className="sched-header-title">Schedule Cleaning</div>
-      </div>
-
-      <div className="sched-day-row">
-        {days.map((d, i) => (
-          <div
-            key={i}
-            className={`sched-day ${selectedDay === i ? 'sched-day-active' : ''}`}
-            onClick={() => setSelectedDay(i)}
-          >
-            <div className="sched-day-label">{d.label}</div>
-            <div className="sched-day-num">{d.num}</div>
-          </div>
-        ))}
       </div>
 
       <div className="sched-section">
@@ -137,15 +111,6 @@ function ScheduleScreen() {
               className="sched-input sched-time-input"
               value={startTime}
               onChange={(e) => setStartTime(e.target.value)}
-            />
-          </div>
-
-          <div className="sched-time-wrapper">
-            <input
-              type="time"
-              className="sched-input sched-time-input"
-              value={endTime}
-              onChange={(e) => setEndTime(e.target.value)}
             />
           </div>
         </div>

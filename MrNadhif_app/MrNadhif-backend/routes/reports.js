@@ -145,8 +145,6 @@ router.get('/valuables', async (req, res) => {
 
 // GET /api/reports/download
 // Generates a downloadable PDF report
-// GET /api/reports/download
-// Generates a downloadable PDF report
 router.get('/download', async (req, res) => {
   try {
     const { beach } = req.query;
@@ -182,18 +180,24 @@ router.get('/download', async (req, res) => {
     const valuables = Number(summary.valuables) || 0;
     const total = Number(summary.total) || 0;
 
+    // Better weighted score
+    const rawScore =
+      100
+      - (plastic * 2)
+      - (metal * 1.5)
+      - (valuables * 0.5);
 
-    const score = Math.max(0, 100 - total * 0.5);
+    const score = Math.max(0, rawScore);
+
     let status = 'Clean';
-
-    if (score < 70) status = 'Moderate Pollution';
-    if (score < 40) status = 'Highly Polluted';
+    if (score < 80) status = 'Moderate Pollution';
+    if (score < 50) status = 'Highly Polluted';
 
     let scoreColor = '#2E8B57';
-    if (score < 70) scoreColor = '#F39C12';
-    if (score < 40) scoreColor = '#E74C3C';
+    if (score < 80) scoreColor = '#F39C12';
+    if (score < 50) scoreColor = '#E74C3C';
 
- 
+    // 2. HOTSPOT
     const hotspotQuery = `
       SELECT
         CASE
@@ -225,7 +229,7 @@ router.get('/download', async (req, res) => {
 
     const percent = (val) => (total ? ((val / total) * 100).toFixed(1) : 0);
 
-    //  PDF SETUP
+    // PDF SETUP
     const doc = new PDFDocument({ margin: 50, size: 'A4' });
 
     const fileName = `report-${(beach || 'all-beaches')
@@ -237,19 +241,25 @@ router.get('/download', async (req, res) => {
 
     doc.pipe(res);
 
+    // ---------- helpers ----------
     const drawSectionTitle = (title, color = '#0F4C81') => {
+      doc.moveDown(0.8);
+
       doc
-        .moveDown(0.8)
-        .fontSize(15)
+        .font('Helvetica-Bold')
+        .fontSize(16)
         .fillColor(color)
-        .text(title, { underline: false });
+        .text(title, 50, doc.y, { align: 'left' });
+
+      doc.moveDown(0.2);
+
       doc
-        .moveDown(0.2)
         .strokeColor('#D9E2EC')
         .lineWidth(1)
         .moveTo(50, doc.y)
         .lineTo(545, doc.y)
         .stroke();
+
       doc.moveDown(0.5);
       doc.fillColor('#1F2937');
     };
@@ -259,10 +269,12 @@ router.get('/download', async (req, res) => {
         .font('Helvetica-Bold')
         .fontSize(11)
         .fillColor('#334E68')
-        .text(`${label}: `, { continued: true })
+        .text(`${label}: `, 60, doc.y, { continued: true })
         .font('Helvetica')
         .fillColor('#1F2937')
         .text(String(value));
+
+      doc.moveDown(0.15);
     };
 
     const drawColoredBox = (x, y, w, h, fill, stroke = fill) => {
@@ -273,8 +285,51 @@ router.get('/download', async (req, res) => {
         .restore();
     };
 
+    const drawBarChart = (x, y, chartWidth, barHeight, data) => {
+      const maxValue = Math.max(...data.map((d) => d.value), 1);
+      const labelWidth = 90;
+      const valueWidth = 40;
+      const barX = x + labelWidth;
+      const maxBarWidth = chartWidth - labelWidth - valueWidth - 20;
+
+      data.forEach((item, index) => {
+        const rowY = y + index * 28;
+        const barWidth = (item.value / maxValue) * maxBarWidth;
+
+        // label
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(11)
+          .fillColor('#334E68')
+          .text(item.label, x, rowY + 4, { width: labelWidth });
+
+        // background bar
+        doc
+          .save()
+          .roundedRect(barX, rowY, maxBarWidth, barHeight, 6)
+          .fill('#EAF2F8')
+          .restore();
+
+        // value bar
+        doc
+          .save()
+          .roundedRect(barX, rowY, Math.max(barWidth, 6), barHeight, 6)
+          .fill(item.color)
+          .restore();
+
+        // number
+        doc
+          .font('Helvetica')
+          .fontSize(10)
+          .fillColor('#1F2937')
+          .text(String(item.value), barX + maxBarWidth + 10, rowY + 4, {
+            width: valueWidth,
+            align: 'left'
+          });
+      });
+    };
+
     // HEADER
-  
     drawColoredBox(50, 40, 495, 85, '#EAF4FF', '#C7DFF7');
 
     doc
@@ -308,103 +363,82 @@ router.get('/download', async (req, res) => {
     drawSectionTitle('Cleanliness Score');
 
     const scoreBoxY = doc.y;
-    drawColoredBox(50, scoreBoxY, 495, 70, '#F8FAFC', '#E2E8F0');
+    drawColoredBox(50, scoreBoxY, 495, 78, '#F8FAFC', '#E2E8F0');
 
     doc
       .font('Helvetica-Bold')
-      .fontSize(20)
+      .fontSize(22)
       .fillColor(scoreColor)
-      .text(`${score.toFixed(0)} / 100`, 70, scoreBoxY + 16);
+      .text(`${score.toFixed(0)} / 100`, 70, scoreBoxY + 18, {
+        width: 140,
+        align: 'left'
+      });
 
     doc
       .font('Helvetica-Bold')
       .fontSize(12)
       .fillColor('#334E68')
-      .text('Status', 220, scoreBoxY + 18);
+      .text('Status', 220, scoreBoxY + 20, {
+        width: 100,
+        align: 'left'
+      });
 
     doc
       .font('Helvetica')
-      .fontSize(12)
+      .fontSize(14)
       .fillColor('#1F2937')
-      .text(status, 220, scoreBoxY + 36);
+      .text(status, 220, scoreBoxY + 42, {
+        width: 180,
+        align: 'left'
+      });
 
-    doc.y = scoreBoxY + 85;
+    doc.y = scoreBoxY + 92;
 
     // SUMMARY
     drawSectionTitle('Summary');
-
     drawInfoRow('Total Items', total);
     drawInfoRow('Plastic', plastic);
     drawInfoRow('Metal', metal);
     drawInfoRow('Valuables', valuables);
 
+    // POLLUTION BREAKDOWN
     drawSectionTitle('Pollution Breakdown');
-
     drawInfoRow('Plastic', `${percent(plastic)}%`);
     drawInfoRow('Metal', `${percent(metal)}%`);
     drawInfoRow('Valuables', `${percent(valuables)}%`);
 
+    // HOTSPOT
     drawSectionTitle('Hotspot Analysis');
 
     if (hotspot) {
       drawInfoRow('Most Polluted Area', hotspot.zone);
-      drawInfoRow('Items Detected', hotspot.count);
     } else {
       doc
         .font('Helvetica')
         .fontSize(11)
         .fillColor('#7B8794')
-        .text('No hotspot data available');
+        .text('No hotspot data available', 60, doc.y, { align: 'left' });
     }
 
+    // INSIGHTS
     drawSectionTitle('Insights');
-
     drawInfoRow('Most Common Waste Type', mostCommon);
-    drawInfoRow('Total Detected Items', total);
 
-    // 
-    drawSectionTitle('Recommendations', '#7C3AED');
+    // CHART
+    drawSectionTitle('Pollution Chart', '#7C3AED');
 
-    const recBoxY = doc.y;
-    drawColoredBox(50, recBoxY, 495, 95, '#F6F0FF', '#E9D8FD');
+    const chartBoxY = doc.y;
+    drawColoredBox(50, chartBoxY, 495, 120, '#F8FAFF', '#D6E4FF');
 
-    let recY = recBoxY + 14;
+    drawBarChart(70, chartBoxY + 20, 440, 16, [
+      { label: 'Plastic', value: plastic, color: '#E74C3C' },
+      { label: 'Metal', value: metal, color: '#95A5A6' },
+      { label: 'Valuables', value: valuables, color: '#9B59B6' },
+    ]);
 
-    const writeRec = (text) => {
-      doc
-        .font('Helvetica')
-        .fontSize(11)
-        .fillColor('#4C1D95')
-        .text(`• ${text}`, 70, recY, { width: 455 });
-      recY += 20;
-    };
+    doc.y = chartBoxY + 135;
 
-    if (hotspot) {
-      writeRec(`Increase cleaning frequency in ${hotspot.zone}.`);
-    }
 
-    if (plastic > metal) {
-      writeRec('Add more plastic-specific disposal bins and awareness signs.');
-    }
-
-    if (total > 50) {
-      writeRec('Schedule more frequent cleaning sessions for this beach.');
-    }
-
-    writeRec('Monitor peak pollution periods to improve response planning.');
-
-    doc.y = recBoxY + 110;
-
-    // FOOTER
-    doc.moveDown(1.5);
-    doc
-      .font('Helvetica-Oblique')
-      .fontSize(10)
-      .fillColor('#7B8794')
-      .text(
-        'Generated automatically by the Mr. Nadhif intelligent cleaning system.',
-        { align: 'center' }
-      );
 
     doc.end();
   } catch (error) {

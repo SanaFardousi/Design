@@ -1,6 +1,6 @@
 router.post('/schedule', async (req, res) => { 
   try {
-    const { beach_name, date, start_time, end_time } = req.body;
+    const { beach_name, date, start_time } = req.body;
 
     if (!beach_name || !date || !start_time) {
       return res.status(400).json({
@@ -11,9 +11,7 @@ router.post('/schedule', async (req, res) => {
 
     const fullStartTime = `${date} ${start_time}:00`;
 
-    const geofence = JSON.stringify({
-      end_time: end_time || null
-    });
+    const geofence = JSON.stringify({});
 
     const result = await pool.query(
       `INSERT INTO cleaning_schedules 

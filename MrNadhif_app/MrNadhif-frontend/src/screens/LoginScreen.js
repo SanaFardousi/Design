@@ -56,7 +56,7 @@ function LoginScreen() {
         <div className="robot-container">
           <div className="robot-bg-circle"></div>
           <img 
-            src="/robot.png" 
+            src="/robot.jpeg" 
             alt="MrNadhif Robot" 
             className="robot-image"
           />

@@ -74,26 +74,31 @@ router.get('/status', async (req, res) => {
 // SAVE schedule in cleaning_schedules
 router.post('/schedule', async (req, res) => {
   try {
-    const { beach_name, date, start_time, end_time } = req.body;
+    const { beach_name, date, start_time } = req.body;
 
-    if (!beach_name || !date || !start_time || !end_time) {
+    if (!beach_name || !date || !start_time) {
       return res.status(400).json({
         success: false,
-        message: 'Beach, date, start time, and end time are required'
+        message: 'Beach, date, and start time are required'
       });
     }
 
     const scheduleStart = `${date} ${start_time}:00`;
 
-    const geofenceJson = JSON.stringify({
-      end_time
-    });
+    const geofenceJson = JSON.stringify({});
 
     const result = await pool.query(
-      `INSERT INTO cleaning_schedules (robot_id, start_time, geofence_json, beach_name)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO cleaning_schedules (
+         robot_id,
+         start_time,
+         geofence_json,
+         beach_name,
+         status,
+         started_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [1, scheduleStart, geofenceJson, beach_name]
+      [1, scheduleStart, geofenceJson, beach_name, 'pending', null]
     );
 
     res.json({
