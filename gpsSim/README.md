@@ -29,6 +29,8 @@ python3 robot_sim.py
 
 ## 📊 Output
 
+![output](https://github.com/SanaFardousi/Design/blob/main/gpsSim/robot_simulation.png)
+
 * **robot_simulation.png** showing:
 
   * Robot path vs ideal path
