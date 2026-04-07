@@ -1,11 +1,3 @@
-"""
-=============================================================
-  GPS + IMU Waypoint Navigation Robot — Python Simulator
-  Mirrors the exact Arduino logic from waypoint_nav_robot.ino
-  Run: python3 robot_sim.py
-=============================================================
-"""
-
 import math
 import time
 import random
@@ -17,7 +9,7 @@ from matplotlib.patches import FancyArrowPatch
 from matplotlib.gridspec import GridSpec
 import numpy as np
 
-# ── TUNABLE PARAMETERS (same as your Arduino code) ──────────
+# ── TUNABLE PARAMETERS  ──────────
 BASE_SPEED          = 160        # 0–255
 TURN_SPEED          = 120
 WAYPOINT_RADIUS_M   = 2.0        # metres
@@ -42,7 +34,7 @@ WAYPOINTS = [
     (29.369280, 47.978710),
     (29.369170, 47.978710)  # WP-3 top-left
 ]
-# ── GEOMETRY HELPERS (identical to Arduino) ─────────────────
+# ── GEOMETRY HELPERS ─────────────────
 EARTH_R = 6_371_000.0
 
 def haversine(lat1, lon1, lat2, lon2):
