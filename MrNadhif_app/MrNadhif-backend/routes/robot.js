@@ -302,6 +302,50 @@ router.post('/obstacle/cleared', async (req, res) => {
   }
 });
 
+// SAVE schedule in cleaning_schedules
+router.post('/schedule', async (req, res) => {
+  try {
+    const { beach_name, date, start_time } = req.body;
+
+    if (!beach_name || !date || !start_time) {
+      return res.status(400).json({
+        success: false,
+        message: 'Beach, date, and start time are required'
+      });
+    }
+
+    const scheduleStart = `${date} ${start_time}:00`;
+
+    const geofenceJson = JSON.stringify({});
+
+    const result = await pool.query(
+      `INSERT INTO cleaning_schedules (
+         robot_id,
+         start_time,
+         geofence_json,
+         beach_name,
+         status,
+         started_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [1, scheduleStart, geofenceJson, beach_name, 'pending', null]
+    );
+
+    res.json({
+      success: true,
+      message: 'Schedule saved successfully',
+      schedule: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error saving schedule:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+});
+
 // valuable item found notification
 router.post('/notifications', async (req, res) => {
   try {
