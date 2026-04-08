@@ -71,50 +71,6 @@ router.get('/status', async (req, res) => {
   }
 });
 
-// SAVE schedule in cleaning_schedules
-router.post('/schedule', async (req, res) => {
-  try {
-    const { beach_name, date, start_time } = req.body;
-
-    if (!beach_name || !date || !start_time) {
-      return res.status(400).json({
-        success: false,
-        message: 'Beach, date, and start time are required'
-      });
-    }
-
-    const scheduleStart = `${date} ${start_time}:00`;
-
-    const geofenceJson = JSON.stringify({});
-
-    const result = await pool.query(
-      `INSERT INTO cleaning_schedules (
-         robot_id,
-         start_time,
-         geofence_json,
-         beach_name,
-         status,
-         started_at
-       )
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [1, scheduleStart, geofenceJson, beach_name, 'pending', null]
-    );
-
-    res.json({
-      success: true,
-      message: 'Schedule saved successfully',
-      schedule: result.rows[0]
-    });
-  } catch (error) {
-    console.error('Error saving schedule:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error'
-    });
-  }
-});
-
 // GET latest saved schedule
 router.get('/latest-schedule', async (req, res) => {
   try {
@@ -163,14 +119,6 @@ router.get('/current-session', async (req, res) => {
     });
   }
 });
-
-
-
-
-
-
-
-
 
 // START actual cleaning session
 router.post('/start', async (req, res) => {
@@ -384,6 +332,52 @@ router.post('/notifications', async (req, res) => {
       success: false,
       message: 'Server error'
     });
+  }
+});
+// ADD THIS to robot.js — Pi calls this when cleaning is done
+router.post('/complete-session', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // End the active session
+    const sessionResult = await client.query(
+      `UPDATE cleaning_sessions
+       SET status = 'completed', end_time = NOW()
+       WHERE robot_id = $1 AND status IN ('in_progress', 'paused')
+       RETURNING session_id`,
+      [1]
+    );
+
+    if (sessionResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'No active session found' });
+    }
+
+    const sessionId = sessionResult.rows[0].session_id;
+
+    // Mark schedule as completed
+    await client.query(
+      `UPDATE cleaning_schedules
+       SET status = 'completed'
+       WHERE session_id = $1`,
+      [sessionId]
+    );
+
+    // Set robot back to idle
+    await client.query(
+      `UPDATE robots SET status = 'idle' WHERE robot_id = $1`,
+      [1]
+    );
+
+    await client.query('COMMIT');
+    res.json({ success: true, session_id: sessionId });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error completing session:', err.message);
+    res.status(500).json({ success: false, message: 'Server error' });
+  } finally {
+    client.release();
   }
 });
 
