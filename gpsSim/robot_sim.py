@@ -12,7 +12,7 @@ import numpy as np
 # ── TUNABLE PARAMETERS  ──────────
 BASE_SPEED          = 160        # 0–255
 TURN_SPEED          = 120
-WAYPOINT_RADIUS_M   = 2.0        # metres
+WAYPOINT_RADIUS_M   = 1.0        # metres
 HEADING_TOLERANCE   = 8.0        # degrees
 STEERING_KP         = 2.2
 ROBOT_SPEED_MPS     = 0.8        # metres per second (tune for your robot)
