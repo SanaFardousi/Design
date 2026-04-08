@@ -19,9 +19,8 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// ==========================================
 // ROBOT API KEY MIDDLEWARE
-// ==========================================
+// 
 const robotAuth = (req, res, next) => {
   const key = req.headers['x-api-key'];
   if (key && key === process.env.ROBOT_API_KEY) {
@@ -31,11 +30,11 @@ const robotAuth = (req, res, next) => {
   }
 };
 
-// ==========================================
+// 
 // SCHEDULE WORKER
 // Checks every 30s for due schedules
 // Survives restarts because state is in DB
-// ==========================================
+
 const checkScheduledCleanings = async () => {
   const client = await pool.connect();
   try {
@@ -48,7 +47,7 @@ const checkScheduledCleanings = async () => {
        FOR UPDATE SKIP LOCKED`
     );
 
-    // ✅ FIXED: no early client.release() — finally block handles it always
+    //  no early client.release() — finally block handles it always
     if (dueSchedules.rows.length === 0) {
       return;
     }
@@ -112,18 +111,18 @@ const checkScheduledCleanings = async () => {
         );
 
         await client.query('COMMIT');
-        console.log(`[Worker] ✅ Schedule ${schedule.schedule_id} → Session ${session.session_id} started`);
+        console.log(`[Worker]  Schedule ${schedule.schedule_id} → Session ${session.session_id} started`);
 
       } catch (err) {
         await client.query('ROLLBACK');
-        console.error(`[Worker] ❌ Failed schedule ${schedule.schedule_id}:`, err.message);
+        console.error(`[Worker]  Failed schedule ${schedule.schedule_id}:`, err.message);
       }
     }
 
   } catch (err) {
     console.error('[Worker] Fatal error:', err.message);
   } finally {
-    client.release(); // ✅ called ONCE, always, no matter what
+    client.release(); //  called ONCE, always, no matter what
   }
 };
 
@@ -131,9 +130,7 @@ const checkScheduledCleanings = async () => {
 checkScheduledCleanings();
 setInterval(checkScheduledCleanings, 30000);
 
-// ==========================================
 // ROUTES
-// ==========================================
 app.use('/api/auth', authRoutes);
 app.use('/api/robot', robotRoutes);
 app.use('/api/reports', reportsRoutes);
@@ -142,9 +139,7 @@ app.use('/api/items', itemsRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/notifications', notificationsRoutes);
 
-// ==========================================
 // PI POLLING ROUTES
-// ==========================================
 
 // Pi asks: "do you have a command for me?"
 app.get('/api/robot/next-command', robotAuth, async (req, res) => {
