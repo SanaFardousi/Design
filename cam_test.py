@@ -5,6 +5,7 @@
 #  Sensor loop  → Arduino 1 serial (background thread)
 #  Motor serial → Arduino 2 (servo commands)
 #  POST calls   → Fire-and-forget daemon threads (never block main loop)
+#  Command poll → Checks backend every 30s for scheduled start commands
 #  Stream       → http://<pi-ip>:8080
 #
 #  Ports:
@@ -26,7 +27,7 @@ from picamera2 import Picamera2
 from ultralytics import YOLO
 
 # ── Backend config ────────────────────────────
-BASE_URL = 'http://172.20.10.2:5000'
+BASE_URL = 'http://192.168.8.71:5000'
 API_KEY  = 'test123'
 
 # ── Supabase Storage config ───────────────────
@@ -45,6 +46,9 @@ YOLO_IMGSZ       = 320  # smaller = faster inference
 # ── Stream config ─────────────────────────────
 STREAM_PORT = 8080
 
+# ── Command poll config ───────────────────────
+COMMAND_POLL_INTERVAL = 30  # seconds between backend polls
+
 # ─────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -53,12 +57,14 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 # ── Shared state ──────────────────────────────
-current_lat  = None
-current_lng  = None
+# GPS: placeholder coords used indoors (real GPS sends 0.0, 0.0)
+current_lat  = 29.331533936248828
+current_lng  = 48.09277661260742
+
 motor_serial = None
 
 last_detected      = {}
-DETECTION_COOLDOWN = 10  # seconds
+DETECTION_COOLDOWN = 15  # seconds — applies to both servo and DB logging
 
 # ── MJPEG shared frame ────────────────────────
 latest_frame      = None
@@ -118,7 +124,6 @@ def start_stream_server():
     app.run(host='0.0.0.0', port=STREAM_PORT, threaded=True)
 
 # ── Non-blocking POST ─────────────────────────
-# Runs in a daemon thread so a timeout never delays the main loop
 def post(endpoint, payload):
     def _send():
         url = f"{BASE_URL}{endpoint}"
@@ -134,6 +139,53 @@ def post(endpoint, payload):
         except requests.exceptions.Timeout:
             log.error(f"Request to {endpoint} timed out")
     threading.Thread(target=_send, daemon=True).start()
+
+# ── Command poll loop (background thread) ─────
+# Polls the backend every 30s for scheduled start_cleaning commands.
+# When one arrives: acknowledge it so the backend knows the Pi got it,
+# then log to terminal. Physical start logic (motors etc.) goes here too.
+def command_poll_loop():
+    log.info("Command poll loop started — checking every 30s for scheduled commands")
+    while True:
+        try:
+            res = requests.get(
+                f"{BASE_URL}/api/robot/next-command",
+                headers={ 'x-api-key': API_KEY },
+                timeout=5
+            )
+            if res.status_code == 200:
+                command = res.json().get('command')
+                if command:
+                    log.info(
+                        f"📡 Command received: [{command['command_type']}]"
+                        f"  session_id={command['session_id']}"
+                        f"  schedule_id={command['schedule_id']}"
+                    )
+                    # Acknowledge so backend marks it as received
+                    ack = requests.post(
+                        f"{BASE_URL}/api/robot/acknowledge-command",
+                        json={ 'command_id': command['command_id'] },
+                        headers={ 'x-api-key': API_KEY },
+                        timeout=5
+                    )
+                    log.info(f"📡 Command acknowledged → {ack.status_code}")
+
+                    if command['command_type'] == 'start_cleaning':
+                        payload = command.get('payload') or {}
+                        beach   = payload.get('beach_name', 'Unknown')
+                        log.info(f"🤖 Scheduled cleaning started — beach: {beach}")
+                        # Add any physical trigger here (e.g. motor start signal)
+            else:
+                log.warning(f"Command poll got unexpected status: {res.status_code}")
+
+        except requests.exceptions.ConnectionError:
+            log.error("Command poll: cannot reach backend")
+        except requests.exceptions.Timeout:
+            log.error("Command poll: request timed out")
+        except Exception as e:
+            log.error(f"Command poll error: {e}")
+
+        time.sleep(COMMAND_POLL_INTERVAL)
 
 # ── Servo char map ────────────────────────────
 SERVO_CHAR = {
@@ -181,27 +233,26 @@ def upload_image(image_path, category, confidence):
 
 # ── Log item to DB ────────────────────────────
 def log_item(category, image_url=None):
-    payload = { 'category': category }
-    if current_lat is not None and current_lng is not None:
-        payload['location_lat'] = current_lat
-        payload['location_lng'] = current_lng
-    else:
-        log.warning(f"No GPS fix yet — logging {category} without location")
+    payload = {
+        'category':     category,
+        'location_lat': current_lat,
+        'location_lng': current_lng,
+    }
     if image_url:
         payload['image_url'] = image_url
     post('/api/items/log', payload)
 
-# ── GPS handler ───────────────────────────────
-def on_gps(line):
-    global current_lat, current_lng
-    try:
-        coords = line[2:]
-        lat, lng = coords.split(',')
-        current_lat = float(lat.strip())
-        current_lng = float(lng.strip())
-        log.info(f"GPS stored: {current_lat}, {current_lng}")
-    except Exception as e:
-        log.error(f"Failed to parse GPS line '{line}': {e}")
+# ── GPS handler (commented out — indoors GPS returns 0.0, 0.0) ──────
+# def on_gps(line):
+#     global current_lat, current_lng
+#     try:
+#         coords = line[2:]
+#         lat, lng = coords.split(',')
+#         current_lat = float(lat.strip())
+#         current_lng = float(lng.strip())
+#         log.info(f"GPS stored: {current_lat}, {current_lng}")
+#     except Exception as e:
+#         log.error(f"Failed to parse GPS line '{line}': {e}")
 
 # ── Bin state ─────────────────────────────────
 bins = [
@@ -274,9 +325,10 @@ def sensor_loop():
                         if char == '\n':
                             line = buffer.strip()
                             buffer = ''
-                            if line.startswith('G:'):
-                                on_gps(line)
-                            elif len(line) == 1 and line in CHAR_HANDLERS:
+                            # GPS lines ignored while using placeholder coords
+                            # if line.startswith('G:'):
+                            #     on_gps(line)
+                            if len(line) == 1 and line in CHAR_HANDLERS:
                                 log.info(f"Char received: '{line}'")
                                 CHAR_HANDLERS[line]()
                             elif line:
@@ -284,7 +336,6 @@ def sensor_loop():
                         else:
                             buffer += char
         except serial.SerialException:
-            # Silent retry — don't spam the terminal
             time.sleep(5)
 
 # ── Category mapping ──────────────────────────
@@ -297,20 +348,22 @@ CATEGORY_MAP = {
     "phone": "valuable", "wallet": "wallets",
     "keys": "keys", "watch": "watches",
     "jewelry": "valuable", "laptop": "valuable", "valuable": "valuable",
+    "sunglasses": "sunglasses",
 }
 
-VALUABLE_CATEGORIES = {'valuable', 'watches', 'wallets', 'keys'}
+VALUABLE_CATEGORIES = {'valuable', 'watches', 'wallets', 'keys', 'sunglasses'}
 
 # Colors in RGB (camera outputs RGB, no conversion done)
 CATEGORY_COLOR = {
-    "plastic":  (255, 165, 0),
-    "metal":    (200, 200, 200),
-    "valuable": (255, 215, 0),
-    "watches":  (255, 215, 0),
-    "wallets":  (255, 215, 0),
-    "keys":     (255, 215, 0),
-    "general":  (0, 255, 0),
-    "unknown":  (100, 100, 100),
+    "plastic":    (255, 165, 0),
+    "metal":      (200, 200, 200),
+    "valuable":   (255, 215, 0),
+    "watches":    (255, 215, 0),
+    "wallets":    (255, 215, 0),
+    "keys":       (255, 215, 0),
+    "sunglasses": (255, 215, 0),
+    "general":    (0, 255, 0),
+    "unknown":    (100, 100, 100),
 }
 
 def get_category(class_name):
@@ -344,8 +397,10 @@ def main():
         log.warning(f"Motor Arduino not found: {e}")
         log.warning("Continuing without motor control.")
 
-    threading.Thread(target=sensor_loop, daemon=True).start()
+    threading.Thread(target=sensor_loop,        daemon=True).start()
     threading.Thread(target=start_stream_server, daemon=True).start()
+    threading.Thread(target=command_poll_loop,  daemon=True).start()
+
     log.info(f"Live feed → http://0.0.0.0:{STREAM_PORT}  (use your Pi's IP)")
 
     log.info("Initializing camera...")
@@ -381,16 +436,24 @@ def main():
     capture_count          = 0
     total_detections_count = 0
 
+    log.info("─" * 55)
+    log.info(f"  Placeholder GPS  : {current_lat}, {current_lng}")
+    log.info(f"  Capture interval : {CAPTURE_INTERVAL}s")
+    log.info(f"  Detection cooldown: {DETECTION_COOLDOWN}s")
+    log.info(f"  Confidence thresh: {CONFIDENCE}")
+    log.info(f"  YOLO image size  : {YOLO_IMGSZ}px")
+    log.info(f"  Command poll     : every {COMMAND_POLL_INTERVAL}s")
+    log.info(f"  Stream           : http://0.0.0.0:{STREAM_PORT}")
+    log.info("─" * 55)
     log.info("Detection started. Press Ctrl+C to quit.")
 
     try:
         while True:
-            # Camera gives RGB888 — use directly, no conversion
             frame        = camera.capture_array()
             current_time = time.time()
             display      = frame.copy()
 
-            # Auto-refocus (non-blocking check)
+            # Auto-refocus
             if current_time - last_refocus_time >= REFOCUS_INTERVAL:
                 try:
                     camera.autofocus_cycle()
@@ -405,18 +468,16 @@ def main():
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                 temp_path = os.path.join(temp_dir, f'cap_{timestamp}.jpg')
 
-                # Resize to YOLO_IMGSZ for faster inference, save full frame separately
                 small = cv2.resize(frame, (YOLO_IMGSZ, YOLO_IMGSZ))
                 cv2.imwrite(temp_path, small)
 
-                log.info(f"Capture #{capture_count} — running YOLO at {YOLO_IMGSZ}px...")
+                log.info(f"━━━ Capture #{capture_count} ━━━  running YOLO at {YOLO_IMGSZ}px ...")
                 t0 = time.time()
 
                 try:
                     results = model(temp_path, conf=CONFIDENCE, iou=IOU, verbose=False)
                     raw_detections = []
 
-                    # Scale boxes back up to 640x480
                     fx = frame.shape[1] / YOLO_IMGSZ
                     fy = frame.shape[0] / YOLO_IMGSZ
 
@@ -431,7 +492,8 @@ def main():
                                     int(x2 * fx), int(y2 * fy),
                                 ],
                             })
-                    log.info(f"YOLO done in {(time.time()-t0)*1000:.0f}ms — {len(raw_detections)} detection(s)")
+                    inference_ms = (time.time() - t0) * 1000
+                    log.info(f"YOLO done in {inference_ms:.0f}ms — {len(raw_detections)} raw detection(s)")
 
                 except Exception as e:
                     log.error(f"YOLO error: {e}")
@@ -439,30 +501,51 @@ def main():
 
                 if raw_detections is not None:
                     current_detections = []
+
+                    if not raw_detections:
+                        log.info("  └─ Nothing detected in frame")
+
                     for det in raw_detections:
                         category = get_category(det["name"])
+                        conf_pct = det["confidence"] * 100
+
                         if category is None:
-                            log.warning(f"Unknown class '{det['name']}' — add to CATEGORY_MAP")
+                            log.warning(
+                                f"  ⚠  Unknown class  : '{det['name']}'  ({conf_pct:.1f}%)  — add to CATEGORY_MAP"
+                            )
                             det["category"] = "unknown"
                         else:
                             det["category"] = category
-                            send_servo(category)
 
                             now = time.time()
-                            if category in last_detected and (now - last_detected[category]) < DETECTION_COOLDOWN:
-                                log.info(f"Skipping {category} — cooldown active")
+                            cooldown_remaining = DETECTION_COOLDOWN - (now - last_detected.get(category, 0))
+
+                            if cooldown_remaining > 0:
+                                log.info(
+                                    f"  ⏳ [{category.upper():10s}]  '{det['name']}'  {conf_pct:.1f}%"
+                                    f"  — cooldown {cooldown_remaining:.1f}s left, skipping"
+                                )
                             else:
                                 last_detected[category] = now
+                                send_servo(category)
+
+                                tag = "💎 VALUABLE" if category in VALUABLE_CATEGORIES else "🗑  TRASH"
+                                log.info(
+                                    f"  ✅ {tag}  [{category.upper():10s}]  '{det['name']}'  {conf_pct:.1f}%"
+                                    f"  → logging to DB"
+                                )
+
                                 if category in VALUABLE_CATEGORIES:
-                                    # Save full-res frame for upload
                                     full_path = temp_path.replace('.jpg', '_full.jpg')
                                     cv2.imwrite(full_path, frame)
-                                    # Upload in background so it doesn't block
+                                    log.info(f"     📸 Saved full-res frame → uploading to Supabase...")
                                     def _upload_and_log(fp, cat, conf):
                                         url = upload_image(fp, cat, conf)
+                                        if url:
+                                            log.info(f"     ☁  Supabase upload OK  : {url}")
                                         log_item(cat, image_url=url)
                                         post('/api/notifications', {
-                                            'type': 'valuable_item_found',
+                                            'type':    'valuable_item_found',
                                             'message': f'Camera detected a valuable item: {cat}'
                                         })
                                         try: os.remove(fp)
@@ -478,8 +561,12 @@ def main():
                         current_detections.append(det)
 
                     total_detections_count += len(current_detections)
+                    if current_detections:
+                        log.info(
+                            f"  📊 Frame summary  : {len(current_detections)} object(s) | "
+                            f"session total: {total_detections_count}"
+                        )
 
-                # Clean up small inference image
                 try:
                     os.remove(temp_path)
                 except:
@@ -492,12 +579,11 @@ def main():
 
             # HUD
             time_until_next = max(0, CAPTURE_INTERVAL - (current_time - last_capture_time))
-            cv2.putText(display, f"Next scan: {time_until_next:.1f}s",       (10, 30),  cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-            cv2.putText(display, f"Captures: {capture_count}",               (10, 60),  cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-            cv2.putText(display, f"In frame: {len(current_detections)}",     (10, 90),  cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0),   2)
-            cv2.putText(display, f"Total detections: {total_detections_count}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            cv2.putText(display, f"Next scan: {time_until_next:.1f}s",          (10, 30),  cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            cv2.putText(display, f"Captures: {capture_count}",                  (10, 60),  cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            cv2.putText(display, f"In frame: {len(current_detections)}",        (10, 90),  cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0),   2)
+            cv2.putText(display, f"Total detections: {total_detections_count}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0),   2)
 
-            # Push annotated frame to MJPEG stream
             with latest_frame_lock:
                 latest_frame = display
 
@@ -514,7 +600,11 @@ def main():
             os.rmdir(temp_dir)
         except:
             pass
-        log.info(f"Session ended — Captures: {capture_count} | Detections: {total_detections_count}")
+        log.info("─" * 55)
+        log.info(f"  Session ended")
+        log.info(f"  Total captures   : {capture_count}")
+        log.info(f"  Total detections : {total_detections_count}")
+        log.info("─" * 55)
 
 
 if __name__ == '__main__':
