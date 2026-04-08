@@ -1,5 +1,18 @@
+# ─────────────────────────────────────────────
+#  Mr Nadhif – Main Pi Controller
+#
+#  Main loop    → Camera + YOLO + annotated stream
+#  Sensor loop  → Arduino 1 serial (background thread)
+#  Motor serial → Arduino 2 (servo commands)
+#  POST calls   → Fire-and-forget daemon threads (never block main loop)
+#  Stream       → http://<pi-ip>:8080
+#
+#  Ports:
+#   /dev/ttyACM0 → Arduino 1 (sensors, read)
+#   /dev/ttyACM1 → Arduino 2 (motors, write)
+# ─────────────────────────────────────────────
+
 import cv2
-import json
 import requests
 import time
 import os
@@ -8,22 +21,119 @@ import serial
 import threading
 import logging
 from datetime import datetime
+from flask import Flask, Response
 from picamera2 import Picamera2
+from ultralytics import YOLO
 
 # ── Backend config ────────────────────────────
-BASE_URL = 'http://172.20.10.6:5000'
+BASE_URL = 'http://172.20.10.2:5000'
 API_KEY  = 'test123'
 
+# ── Supabase Storage config ───────────────────
+SUPABASE_URL    = 'https://mtkzevhdxczjlcndtsgi.supabase.co'
+SUPABASE_ANON   = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10a3pldmhkeGN6amxjbmR0c2dpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzNjQ3MTEsImV4cCI6MjA4OTk0MDcxMX0.qmjdyi_XLUW-IghUWl8LOe1931hbbq63l83CTSQZ7Ro'
+SUPABASE_BUCKET = 'valuables'
+
+# ── YOLO config ───────────────────────────────
+MODEL_PATH       = '/home/arlo/report/best.pt'
+CONFIDENCE       = 0.25
+IOU              = 0.45
+CAPTURE_INTERVAL = 2    # seconds between YOLO runs
+REFOCUS_INTERVAL = 20   # seconds between auto-refocus
+YOLO_IMGSZ       = 320  # smaller = faster inference
+
+# ── Stream config ─────────────────────────────
+STREAM_PORT = 8080
+
+# ─────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s'
 )
 log = logging.getLogger(__name__)
 
-# ── GPS stored in memory ──────────────────────
+# ── Shared state ──────────────────────────────
 current_lat  = None
 current_lng  = None
 motor_serial = None
+
+last_detected      = {}
+DETECTION_COOLDOWN = 10  # seconds
+
+# ── MJPEG shared frame ────────────────────────
+latest_frame      = None
+latest_frame_lock = threading.Lock()
+
+# ── Flask MJPEG server ────────────────────────
+app = Flask(__name__)
+
+def generate_frames():
+    while True:
+        with latest_frame_lock:
+            frame = latest_frame
+        if frame is None:
+            time.sleep(0.01)
+            continue
+        ret, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+        if not ret:
+            continue
+        yield (
+            b'--frame\r\n'
+            b'Content-Type: image/jpeg\r\n\r\n' +
+            jpeg.tobytes() +
+            b'\r\n'
+        )
+        time.sleep(0.033)  # ~30 fps cap
+
+@app.route('/')
+def index():
+    return '''
+    <html>
+    <head>
+        <title>Mr Nadhif — Live Feed</title>
+        <style>
+            body { background: #111; display: flex; flex-direction: column;
+                   align-items: center; justify-content: center; height: 100vh; margin: 0; }
+            h2   { color: #0ff; font-family: monospace; margin-bottom: 12px; }
+            img  { border: 2px solid #0ff; border-radius: 4px; max-width: 100%; }
+        </style>
+    </head>
+    <body>
+        <h2>&#x1F916; Mr Nadhif — Live Detection Feed</h2>
+        <img src="/stream" />
+    </body>
+    </html>
+    '''
+
+@app.route('/stream')
+def stream():
+    return Response(
+        generate_frames(),
+        mimetype='multipart/x-mixed-replace; boundary=frame'
+    )
+
+def start_stream_server():
+    import logging as _logging
+    _logging.getLogger('werkzeug').setLevel(_logging.ERROR)
+    app.run(host='0.0.0.0', port=STREAM_PORT, threaded=True)
+
+# ── Non-blocking POST ─────────────────────────
+# Runs in a daemon thread so a timeout never delays the main loop
+def post(endpoint, payload):
+    def _send():
+        url = f"{BASE_URL}{endpoint}"
+        try:
+            res = requests.post(
+                url, json=payload,
+                headers={ 'x-api-key': API_KEY },
+                timeout=5
+            )
+            log.info(f"POST {endpoint} → {res.status_code}")
+        except requests.exceptions.ConnectionError:
+            log.error(f"Cannot reach backend at {url}")
+        except requests.exceptions.Timeout:
+            log.error(f"Request to {endpoint} timed out")
+    threading.Thread(target=_send, daemon=True).start()
 
 # ── Servo char map ────────────────────────────
 SERVO_CHAR = {
@@ -33,7 +143,6 @@ SERVO_CHAR = {
     'general':  'G',
 }
 
-# ── Send servo command ────────────────────────
 def send_servo(category):
     global motor_serial
     char = SERVO_CHAR.get(category)
@@ -44,41 +153,27 @@ def send_servo(category):
         except serial.SerialException as e:
             log.error(f"Failed to send servo command: {e}")
 
-# ── POST helper ───────────────────────────────
-def post(endpoint, payload):
-    url = f"{BASE_URL}{endpoint}"
-    try:
-        res = requests.post(
-            url,
-            json=payload,
-            headers={ 'x-api-key': API_KEY },
-            timeout=5
-        )
-        log.info(f"POST {endpoint} → {res.status_code}")
-    except requests.exceptions.ConnectionError:
-        log.error(f"Cannot reach backend at {url}")
-    except requests.exceptions.Timeout:
-        log.error(f"Request to {endpoint} timed out")
-
-# ── Upload image to backend ───────────────────
+# ── Upload image to Supabase ──────────────────
 def upload_image(image_path, category, confidence):
-    url = f"{BASE_URL}/api/upload/image"
     try:
+        timestamp   = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename    = f"{category}_{timestamp}.jpg"
+        storage_url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{filename}"
         with open(image_path, 'rb') as f:
             res = requests.post(
-                url,
-                headers={ 'x-api-key': API_KEY },
-                files={ 'image': f },
-                data={ 'category': category, 'confidence': str(confidence) },
-                timeout=10
+                storage_url,
+                headers={
+                    'Authorization': f'Bearer {SUPABASE_ANON}',
+                    'Content-Type': 'image/jpeg',
+                },
+                data=f, timeout=10
             )
-        if res.status_code == 200:
-            data = res.json()
-            image_url = data.get('item', {}).get('image_url') or data.get('image_url')
-            log.info(f"Image uploaded: {image_url}")
-            return image_url
+        if res.status_code in (200, 201):
+            public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{filename}"
+            log.info(f"Image uploaded: {public_url}")
+            return public_url
         else:
-            log.error(f"Image upload failed: {res.status_code}")
+            log.error(f"Supabase upload failed: {res.status_code} — {res.text}")
             return None
     except Exception as e:
         log.error(f"Image upload error: {e}")
@@ -127,73 +222,50 @@ def send_bins():
 
 # ── Char handlers ─────────────────────────────
 def on_metal_inserted():
-    log.info("Metal trash inserted")
-    log_item('metal')
-    send_servo('metal')
+    log.info("Metal trash inserted"); log_item('metal'); send_servo('metal')
 
 def on_metal_full():
-    log.warning("Metal bin is FULL")
-    set_bin_full('Metal', True)
-    send_bins()
+    log.warning("Metal bin is FULL"); set_bin_full('Metal', True); send_bins()
 
 def on_plastic_inserted():
-    log.info("Plastic trash inserted")
-    log_item('plastic')
-    send_servo('plastic')
+    log.info("Plastic trash inserted"); log_item('plastic'); send_servo('plastic')
 
 def on_plastic_full():
-    log.warning("Plastic bin is FULL")
-    set_bin_full('Plastic', True)
-    send_bins()
+    log.warning("Plastic bin is FULL"); set_bin_full('Plastic', True); send_bins()
 
 def on_valuable_inserted():
-    log.info("Valuable item detected!")
-    log_item('valuable')
-    send_servo('valuable')
+    log.info("Valuable item detected!"); log_item('valuable'); send_servo('valuable')
+    post('/api/notifications', { 'type': 'valuable_item_found', 'message': 'Valuable item detected by bin sensor' })
 
 def on_valuable_bin_full():
-    log.warning("Valuable bin is FULL")
-    set_bin_full('Valuable', True)
-    send_bins()
+    log.warning("Valuable bin is FULL"); set_bin_full('Valuable', True); send_bins()
 
 def on_general_inserted():
-    log.info("General trash inserted")
-    log_item('general')
-    send_servo('general')
+    log.info("General trash inserted"); log_item('general'); send_servo('general')
 
 def on_general_bin_full():
-    log.warning("General bin is FULL")
-    set_bin_full('Other', True)
-    send_bins()
+    log.warning("General bin is FULL"); set_bin_full('Other', True); send_bins()
 
 def on_obstacle_detected():
-    log.warning("Obstacle detected!")
-    post('/api/robot/obstacle/detected', {})
+    log.warning("Obstacle detected!"); post('/api/robot/obstacle/detected', {})
 
 def on_obstacle_cleared():
-    log.info("Obstacle cleared")
-    post('/api/robot/obstacle/cleared', {})
+    log.info("Obstacle cleared"); post('/api/robot/obstacle/cleared', {})
 
 CHAR_HANDLERS = {
-    'm': on_metal_inserted,
-    'M': on_metal_full,
-    'p': on_plastic_inserted,
-    'P': on_plastic_full,
-    'v': on_valuable_inserted,
-    'V': on_valuable_bin_full,
-    'g': on_general_inserted,
-    'G': on_general_bin_full,
-    'O': on_obstacle_detected,
-    'C': on_obstacle_cleared,
+    'm': on_metal_inserted, 'M': on_metal_full,
+    'p': on_plastic_inserted, 'P': on_plastic_full,
+    'v': on_valuable_inserted, 'V': on_valuable_bin_full,
+    'g': on_general_inserted, 'G': on_general_bin_full,
+    'O': on_obstacle_detected, 'C': on_obstacle_cleared,
 }
 
-
-# ── Sensor thread (only addition) ────────────
+# ── Sensor serial loop (background thread) ────
 def sensor_loop():
     while True:
         try:
             with serial.Serial('/dev/ttyACM0', 9600, timeout=1) as ser:
-                print("Sensor Arduino connected.")
+                log.info("Sensor Arduino connected.")
                 buffer = ''
                 while True:
                     if ser.in_waiting > 0:
@@ -208,399 +280,242 @@ def sensor_loop():
                                 log.info(f"Char received: '{line}'")
                                 CHAR_HANDLERS[line]()
                             elif line:
-                                print(f"Received: '{line}'")
+                                log.debug(f"Received: '{line}'")
                         else:
                             buffer += char
-        except serial.SerialException as e:
-            print(f"Serial error: {e}. Retrying in 5s...")
+        except serial.SerialException:
+            # Silent retry — don't spam the terminal
             time.sleep(5)
 
-# ========================================
-# CATEGORY MAPPING
-# ========================================
-# Map your model's class names to one of 3 categories
-# Edit this to match your model's actual class names!
+# ── Category mapping ──────────────────────────
 CATEGORY_MAP = {
-    # --- PLASTIC ---
-    "plastic_bottle": "plastic",
-    "plastic_bag":    "plastic",
-    "plastic":        "plastic",
-    "bottle":         "plastic",
-    "cup":            "plastic",
-    "straw":          "plastic",
-
-    # --- METAL ---
-    "can":            "metal",
-    "tin":            "metal",
-    "metal":          "metal",
-    "aluminum":       "metal",
-    "steel":          "metal",
-
-    # --- VALUABLE ---
-    "phone":          "valuable",
-    "wallet":         "valuable",
-    "keys":           "valuable",
-    "watch":          "valuable",
-    "jewelry":        "valuable",
-    "laptop":         "valuable",
-    "valuable":       "valuable",
+    "plastic_bottle": "plastic", "plastic_bag": "plastic",
+    "plastic": "plastic", "bottle": "plastic",
+    "cup": "plastic", "straw": "plastic",
+    "can": "metal", "tin": "metal",
+    "metal": "metal", "aluminum": "metal", "steel": "metal",
+    "phone": "valuable", "wallet": "wallets",
+    "keys": "keys", "watch": "watches",
+    "jewelry": "valuable", "laptop": "valuable", "valuable": "valuable",
 }
 
-# Char sent to Arduino for each category
-SERIAL_CHAR = {
-    "plastic":  "P",
-    "metal":    "M",
-    "valuable": "V",
-}
+VALUABLE_CATEGORIES = {'valuable', 'watches', 'wallets', 'keys'}
 
-# Category display colors (BGR)
+# Colors in RGB (camera outputs RGB, no conversion done)
 CATEGORY_COLOR = {
-    "plastic":  (0, 165, 255),   # Orange
-    "metal":    (200, 200, 200), # Silver/Gray
-    "valuable": (0, 215, 255),   # Gold
+    "plastic":  (255, 165, 0),
+    "metal":    (200, 200, 200),
+    "valuable": (255, 215, 0),
+    "watches":  (255, 215, 0),
+    "wallets":  (255, 215, 0),
+    "keys":     (255, 215, 0),
+    "general":  (0, 255, 0),
+    "unknown":  (100, 100, 100),
 }
 
-
-def get_category(class_name: str) -> str | None:
-    """Map a raw model class name to one of the 3 categories."""
+def get_category(class_name):
     return CATEGORY_MAP.get(class_name.lower().strip())
 
-
-class ArduinoSerial:
-    def __init__(self, port="/dev/ttyUSB0", baud=9600):
-        """
-        Open serial connection to Arduino.
-        Common ports on Pi:
-          /dev/ttyUSB0  – USB serial adapter
-          /dev/ttyACM0  – Arduino Uno/Mega via USB
-        """
-        self.ser = None
-        try:
-            self.ser = serial.Serial(port, baud, timeout=1)
-            time.sleep(2)  # Let Arduino reset after connection
-            print(f"✔ Arduino connected on {port} @ {baud} baud")
-        except serial.SerialException as e:
-            print(f"⚠  Could not open serial port {port}: {e}")
-            print("   Running without Arduino output.")
-
-    def send(self, char: str):
-        """Send a single character to the Arduino."""
-        if self.ser and self.ser.is_open:
-            try:
-                self.ser.write(char.encode())
-                print(f"   → Serial: sent '{char}'")
-            except serial.SerialException as e:
-                print(f"   ✗ Serial write failed: {e}")
-        else:
-            print(f"   [No Arduino] would send: '{char}'")
-
-    def close(self):
-        if self.ser and self.ser.is_open:
-            self.ser.close()
-
-
-class SimpleCloudDetector:
-    def __init__(self, api_key, model_url, confidence=0.25, iou=0.45, api_endpoint=None):
-        if api_endpoint:
-            self.api_url = api_endpoint
-            print(f"✔ Using DEDICATED endpoint")
-        else:
-            self.api_url = "https://predict.ultralytics.com"
-            print(f"✔ Using SHARED endpoint (rate limited)")
-
-        self.api_key = api_key
-        self.model_url = model_url
-        self.confidence = confidence
-        self.iou = iou
-
-        print(f"  Endpoint: {self.api_url}")
-        print(f"  Model: {model_url}")
-        print(f"  Confidence: {confidence}")
-
-    def detect_from_file(self, image_path):
-        """Run detection on an image file and return raw detections."""
-        try:
-            headers = {"x-api-key": self.api_key}
-
-            if self.api_url != "https://predict.ultralytics.com":
-                data = {"imgsz": 640, "conf": self.confidence, "iou": self.iou}
-            else:
-                data = {
-                    "model": self.model_url,
-                    "imgsz": 640,
-                    "conf": self.confidence,
-                    "iou": self.iou,
-                }
-
-            with open(image_path, "rb") as f:
-                files = {"file": f}
-                response = requests.post(
-                    self.api_url,
-                    headers=headers,
-                    data=data,
-                    files=files,
-                    timeout=10,
-                )
-
-            response.raise_for_status()
-            result = response.json()
-
-            detections = []
-            if "images" in result and result["images"]:
-                for det in result["images"][0].get("results", []):
-                    box = det["box"]
-                    detections.append({
-                        "class":      det["class"],
-                        "name":       det["name"],
-                        "confidence": det["confidence"],
-                        "box": [
-                            int(box["x1"]), int(box["y1"]),
-                            int(box["x2"]), int(box["y2"]),
-                        ],
-                    })
-
-            return detections
-
-        except requests.exceptions.RequestException as e:
-            print(f"✗ API Error: {e}")
-            return None
-        except Exception as e:
-            print(f"✗ Error: {e}")
-            return None
-
-
+# ── Draw detections ───────────────────────────
 def draw_detections(image, detections):
-    """Draw bounding boxes with category labels on image."""
     for det in detections:
         x1, y1, x2, y2 = det["box"]
         category = det.get("category", "unknown")
-        conf = det["confidence"]
-        color = CATEGORY_COLOR.get(category, (0, 255, 0))
-
+        conf     = det["confidence"]
+        color    = CATEGORY_COLOR.get(category, (0, 255, 0))
         cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
-
         label = f"{category.upper()} ({det['name']}) {conf:.2f}"
         (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
         cv2.rectangle(image, (x1, y1 - h - 10), (x1 + w, y1), color, -1)
         cv2.putText(image, label, (x1, y1 - 5),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 2)
-
     return image
 
-
+# ── Main ──────────────────────────────────────
 def main():
-    # ========================================
-    # CONFIGURATION
-    # ========================================
-    API_KEY           = "b42e02b5a56c145f6ae7513aae888cdf9f570fa970"
-    MODEL_URL         = "https://hub.ultralytics.com/models/g6ukybMzSi9dDpghhDTY"
-    CONFIDENCE        = 0.25
-    IOU               = 0.45
-    CAPTURE_INTERVAL  = 2       # Seconds between captures
-    REFOCUS_INTERVAL  = 20      # Seconds between auto-refocus
+    global motor_serial, latest_frame
 
-    DEDICATED_ENDPOINT = "https://predict-f8mbbq9g6kiwnrd4umec-7nza6zqsha-ez.a.run.app"
-
-    # ---- Arduino serial port ----
-    # Change to /dev/ttyACM0 if using a standard Arduino Uno/Mega over USB
-    ARDUINO_PORT = "/dev/ttyACM0"
-    ARDUINO_BAUD = 9600
-
-    # ---- Arduino ----
-    arduino = ArduinoSerial(port=ARDUINO_PORT, baud=ARDUINO_BAUD)
-
-    # ---- Motor Arduino ----
-    global motor_serial
+    log.info("Connecting to motor Arduino on /dev/ttyACM1...")
     try:
-        motor_serial = serial.Serial('/dev/ttyACM1', ARDUINO_BAUD, timeout=1)
+        motor_serial = serial.Serial('/dev/ttyACM1', 9600, timeout=1)
         time.sleep(2)
-        log.info("Motor Arduino connected on /dev/ttyACM1")
+        log.info("Motor Arduino connected.")
     except serial.SerialException as e:
         log.warning(f"Motor Arduino not found: {e}")
         log.warning("Continuing without motor control.")
 
-    # ---- Sensor thread ----
     threading.Thread(target=sensor_loop, daemon=True).start()
+    threading.Thread(target=start_stream_server, daemon=True).start()
+    log.info(f"Live feed → http://0.0.0.0:{STREAM_PORT}  (use your Pi's IP)")
 
-    # ---- Camera ----
-    print("🎥 Initializing Pi Camera Module 3...")
+    log.info("Initializing camera...")
     camera = Picamera2()
-    config = camera.create_still_configuration(
-        main={"size": (640, 480), "format": "RGB888"},
+    config = camera.create_video_configuration(
+        main={ 'size': (640, 480), 'format': 'RGB888' },
         controls={
-            "AfMode":    2,
-            "AfSpeed":   1,
-            "AwbEnable": True,
-            "AeEnable":  True,
+            'AfMode': 2, 'AfSpeed': 1,
+            'AwbEnable': True, 'AeEnable': True,
+            'FrameRate': 30,
         },
     )
     camera.configure(config)
     camera.start()
 
-    print("⏳ Waiting for camera warm-up and autofocus...")
+    log.info("Waiting for camera warm-up and autofocus...")
     time.sleep(3)
     try:
         camera.autofocus_cycle()
         time.sleep(1)
-        print("✔ Autofocus complete")
+        log.info("Autofocus complete")
     except Exception as e:
-        print(f"⚠  Autofocus: {e}")
+        log.warning(f"Autofocus: {e}")
 
-    # ---- Detector ----
-    print("☁  Initializing Ultralytics Cloud API...")
-    detector = SimpleCloudDetector(
-        API_KEY, MODEL_URL, CONFIDENCE, IOU, api_endpoint=DEDICATED_ENDPOINT
-    )
+    log.info(f"Loading YOLO model from {MODEL_PATH}...")
+    model = YOLO(MODEL_PATH)
+    log.info("YOLO model loaded.")
 
-    temp_dir = tempfile.mkdtemp(prefix="detection_")
-
-    print("\n" + "=" * 60)
-    print("🚀 DETECTION STARTED  |  3 Categories: Plastic · Metal · Valuable")
-    print("=" * 60)
-    print(f"  Serial chars → P=plastic  M=metal  V=valuable")
-    print(f"  Capture every {CAPTURE_INTERVAL}s   |   'q' to quit   |   'f' to refocus")
-    print("=" * 60 + "\n")
-
-    capture_count          = 0
+    temp_dir               = tempfile.mkdtemp(prefix='mrnadhif_')
     last_capture_time      = 0
     last_refocus_time      = time.time()
     current_detections     = []
+    capture_count          = 0
     total_detections_count = 0
+
+    log.info("Detection started. Press Ctrl+C to quit.")
 
     try:
         while True:
+            # Camera gives RGB888 — use directly, no conversion
             frame        = camera.capture_array()
             current_time = time.time()
-            display_frame = frame.copy()
+            display      = frame.copy()
 
-            # Auto-refocus
+            # Auto-refocus (non-blocking check)
             if current_time - last_refocus_time >= REFOCUS_INTERVAL:
-                print(f"\n🔍 Auto-refocus...")
                 try:
                     camera.autofocus_cycle()
-                    time.sleep(0.3)
-                    print("   ✔ Done\n")
                     last_refocus_time = current_time
-                except Exception as e:
-                    print(f"   ⚠  {e}\n")
+                    log.info("Auto-refocus done")
+                except:
+                    pass
 
-            # Capture & detect
+            # ── YOLO inference every CAPTURE_INTERVAL seconds ──
             if current_time - last_capture_time >= CAPTURE_INTERVAL:
                 capture_count += 1
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                temp_path = os.path.join(temp_dir, f"capture_{timestamp}.jpg")
-                cv2.imwrite(temp_path, frame)
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                temp_path = os.path.join(temp_dir, f'cap_{timestamp}.jpg')
 
-                print(f"\n📸 Capture #{capture_count}  [{timestamp}]")
-                print("   ☁  Sending to API...", end=" ", flush=True)
+                # Resize to YOLO_IMGSZ for faster inference, save full frame separately
+                small = cv2.resize(frame, (YOLO_IMGSZ, YOLO_IMGSZ))
+                cv2.imwrite(temp_path, small)
 
+                log.info(f"Capture #{capture_count} — running YOLO at {YOLO_IMGSZ}px...")
                 t0 = time.time()
-                raw_detections = detector.detect_from_file(temp_path)
-                api_ms = (time.time() - t0) * 1000
+
+                try:
+                    results = model(temp_path, conf=CONFIDENCE, iou=IOU, verbose=False)
+                    raw_detections = []
+
+                    # Scale boxes back up to 640x480
+                    fx = frame.shape[1] / YOLO_IMGSZ
+                    fy = frame.shape[0] / YOLO_IMGSZ
+
+                    for r in results:
+                        for box in r.boxes:
+                            x1, y1, x2, y2 = box.xyxy[0]
+                            raw_detections.append({
+                                'name':       model.names[int(box.cls)],
+                                'confidence': float(box.conf),
+                                'box': [
+                                    int(x1 * fx), int(y1 * fy),
+                                    int(x2 * fx), int(y2 * fy),
+                                ],
+                            })
+                    log.info(f"YOLO done in {(time.time()-t0)*1000:.0f}ms — {len(raw_detections)} detection(s)")
+
+                except Exception as e:
+                    log.error(f"YOLO error: {e}")
+                    raw_detections = None
 
                 if raw_detections is not None:
-                    print(f"✔ ({api_ms:.0f}ms)")
-
-                    # Attach category to each detection & send to Arduino
                     current_detections = []
                     for det in raw_detections:
                         category = get_category(det["name"])
                         if category is None:
-                            print(f"      ⚠  Unknown class '{det['name']}' — add to CATEGORY_MAP to classify")
+                            log.warning(f"Unknown class '{det['name']}' — add to CATEGORY_MAP")
                             det["category"] = "unknown"
                         else:
                             det["category"] = category
-                            char = SERIAL_CHAR.get(category)
-                            if char:
-                                arduino.send(char)
                             send_servo(category)
 
-                            # For valuables: upload image then log with URL
-                            if category == 'valuable':
-                                image_url = upload_image(temp_path, category, det["confidence"])
-                                log_item(category, image_url=image_url)
+                            now = time.time()
+                            if category in last_detected and (now - last_detected[category]) < DETECTION_COOLDOWN:
+                                log.info(f"Skipping {category} — cooldown active")
                             else:
-                                log_item(category)
-
-                            if category == 'metal':
-                                image_url = upload_image(temp_path, category, det["confidence"])
-                                log_item(category, image_url=image_url)
-                            else:
-                                log_item(category)
+                                last_detected[category] = now
+                                if category in VALUABLE_CATEGORIES:
+                                    # Save full-res frame for upload
+                                    full_path = temp_path.replace('.jpg', '_full.jpg')
+                                    cv2.imwrite(full_path, frame)
+                                    # Upload in background so it doesn't block
+                                    def _upload_and_log(fp, cat, conf):
+                                        url = upload_image(fp, cat, conf)
+                                        log_item(cat, image_url=url)
+                                        post('/api/notifications', {
+                                            'type': 'valuable_item_found',
+                                            'message': f'Camera detected a valuable item: {cat}'
+                                        })
+                                        try: os.remove(fp)
+                                        except: pass
+                                    threading.Thread(
+                                        target=_upload_and_log,
+                                        args=(full_path, category, det["confidence"]),
+                                        daemon=True
+                                    ).start()
+                                else:
+                                    log_item(category)
 
                         current_detections.append(det)
 
-                    if current_detections:
-                        print(f"   ✅ {len(current_detections)} detection(s):")
-                        for det in current_detections:
-                            print(f"      • {det['name']} → {det.get('category','?').upper()} ({det['confidence']:.2f})")
-                        total_detections_count += len(current_detections)
-                    else:
-                        print("   ℹ  No objects detected")
+                    total_detections_count += len(current_detections)
 
-                else:
-                    print("✗ API call failed")
-                    current_detections = []
-
-                # Only delete temp image if no valuable was detected
-                has_valuable = any(
-                    get_category(det["name"]) == 'valuable'
-                    for det in (raw_detections or [])
-                )
-                if not has_valuable:
-                    try:
-                        os.remove(temp_path)
-                    except:
-                        pass
+                # Clean up small inference image
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
 
                 last_capture_time = current_time
 
-            # Draw overlay
-            display_frame = draw_detections(display_frame, current_detections)
+            # Draw bounding boxes
+            display = draw_detections(display, current_detections)
 
+            # HUD
             time_until_next = max(0, CAPTURE_INTERVAL - (current_time - last_capture_time))
-            cv2.putText(display_frame, f"Next: {time_until_next:.1f}s",   (10, 30),  cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-            cv2.putText(display_frame, f"Captures: {capture_count}",      (10, 60),  cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-            cv2.putText(display_frame, f"In frame: {len(current_detections)}", (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            cv2.putText(display_frame, f"Total: {total_detections_count}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            cv2.putText(display, f"Next scan: {time_until_next:.1f}s",       (10, 30),  cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            cv2.putText(display, f"Captures: {capture_count}",               (10, 60),  cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            cv2.putText(display, f"In frame: {len(current_detections)}",     (10, 90),  cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0),   2)
+            cv2.putText(display, f"Total detections: {total_detections_count}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-            cv2.imshow("Cloud Detection - Plastic / Metal / Valuable", display_frame)
-
-            key = cv2.waitKey(100) & 0xFF
-            if key == ord('q'):
-                print("\n🛑 Stopping...")
-                break
-            elif key == ord('f'):
-                print("\n🔍 Manual refocus...")
-                try:
-                    camera.autofocus_cycle()
-                    time.sleep(0.5)
-                    print("   ✔ Done\n")
-                except Exception as e:
-                    print(f"   ⚠  {e}\n")
+            # Push annotated frame to MJPEG stream
+            with latest_frame_lock:
+                latest_frame = display
 
     except KeyboardInterrupt:
-        print("\n🛑 Interrupted by user")
+        log.info("Interrupted by user")
 
     finally:
         camera.stop()
-        cv2.destroyAllWindows()
-        arduino.close()
-
-        print(f"\n🧹 Cleaning up temp files...")
+        if motor_serial and motor_serial.is_open:
+            motor_serial.close()
         try:
-            for file in os.listdir(temp_dir):
-                os.remove(os.path.join(temp_dir, file))
+            for f in os.listdir(temp_dir):
+                os.remove(os.path.join(temp_dir, f))
             os.rmdir(temp_dir)
-            print("✔ Done")
-        except Exception as e:
-            print(f"⚠  Cleanup: {e}")
-
-        print(f"\n📊 Session Summary:")
-        print(f"   Total captures:   {capture_count}")
-        print(f"   Total detections: {total_detections_count}")
-        print("✔ Bye!")
+        except:
+            pass
+        log.info(f"Session ended — Captures: {capture_count} | Detections: {total_detections_count}")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
