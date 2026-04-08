@@ -127,4 +127,46 @@ router.get('/valuables', async (req, res) => {
   }
 });
 
+router.put('/:itemId/status', async (req, res) => {
+  try {
+    const { itemId } = req.params;
+    const { status } = req.body;
+
+    const allowedStatuses = ['pending', 'stored', 'claimed'];
+
+    if (!allowedStatuses.includes(String(status).toLowerCase())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status'
+      });
+    }
+
+    const result = await pool.query(
+      `UPDATE item_records
+       SET status = $1
+       WHERE item_id = $2
+       RETURNING *`,
+      [status.toLowerCase(), itemId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Item not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      item: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error updating item status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+});
+
 module.exports = router;

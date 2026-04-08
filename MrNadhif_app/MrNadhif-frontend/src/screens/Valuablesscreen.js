@@ -21,6 +21,8 @@ function ValuablesScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
+  const [selectedStatus, setSelectedStatus] = useState('');
+  const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
     const fetchValuables = async () => {
@@ -50,8 +52,7 @@ function ValuablesScreen() {
     const map = {
       watches: 'Watch',
       wallets: 'Wallet',
-      sunglasses: 'Sunglasses',
-      keys: 'Keys'
+      sunglasses: 'Sunglasses'
     };
 
     return map[category.toLowerCase()] || category;
@@ -72,6 +73,61 @@ function ValuablesScreen() {
     if (normalized === 'pending') return 'status-pending';
 
     return 'status-unknown';
+  };
+
+  const handleOpenItem = (item) => {
+    setSelectedItem(item);
+    setSelectedStatus(item.status || 'pending');
+  };
+
+  const handleCloseModal = () => {
+    setSelectedItem(null);
+    setSelectedStatus('');
+  };
+
+  const handleUpdateStatus = async () => {
+    if (!selectedItem) return;
+
+    try {
+      setUpdating(true);
+
+      const res = await fetch(
+        `http://localhost:5000/api/items/${selectedItem.item_id}/status`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ status: selectedStatus })
+        }
+      );
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Failed to update status');
+      }
+
+      const updatedItems = items.map((item) =>
+        item.item_id === selectedItem.item_id
+          ? { ...item, status: selectedStatus }
+          : item
+      );
+
+      setItems(updatedItems);
+
+      setSelectedItem({
+        ...selectedItem,
+        status: selectedStatus
+      });
+
+      alert('Status updated successfully');
+    } catch (error) {
+      console.error('Update status error:', error);
+      alert(error.message || 'Failed to update status');
+    } finally {
+      setUpdating(false);
+    }
   };
 
   const filtered = items.filter((item) => {
@@ -152,7 +208,7 @@ function ValuablesScreen() {
               <div
                 className="val-card"
                 key={item.item_id}
-                onClick={() => setSelectedItem(item)}
+                onClick={() => handleOpenItem(item)}
               >
                 <img
                   className="val-img"
@@ -193,11 +249,11 @@ function ValuablesScreen() {
       </div>
 
       {selectedItem && (
-        <div className="val-modal-overlay" onClick={() => setSelectedItem(null)}>
+        <div className="val-modal-overlay" onClick={handleCloseModal}>
           <div className="val-modal" onClick={(e) => e.stopPropagation()}>
             <button
               className="val-modal-close"
-              onClick={() => setSelectedItem(null)}
+              onClick={handleCloseModal}
             >
               <X size={18} />
             </button>
@@ -264,10 +320,32 @@ function ValuablesScreen() {
                 </a>
               )}
 
+              <div className="val-modal-status-edit">
+                <label className="val-modal-label">Update Status</label>
+
+                <select
+                  className="val-status-select"
+                  value={selectedStatus}
+                  onChange={(e) => setSelectedStatus(e.target.value)}
+                >
+                  <option value="pending">Pending</option>
+                  <option value="stored">Stored</option>
+                  <option value="claimed">Claimed</option>
+                </select>
+
+                <button
+                  className="val-modal-btn val-modal-btn-primary"
+                  onClick={handleUpdateStatus}
+                  disabled={updating}
+                >
+                  {updating ? 'Updating...' : 'Update Status'}
+                </button>
+              </div>
+
               <div className="val-modal-footer">
                 <button
                   className="val-modal-btn"
-                  onClick={() => setSelectedItem(null)}
+                  onClick={handleCloseModal}
                 >
                   Close
                 </button>
