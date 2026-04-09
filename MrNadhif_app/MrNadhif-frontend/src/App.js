@@ -7,6 +7,8 @@ import RobotControlScreen from './screens/Robotcontrolscreen';
 import ScheduleScreen from './screens/Schedulescreen';
 import ValuablesScreen from './screens/Valuablesscreen';
 import SettingsScreen from './screens/Settingsscreen';
+import VisitorResponsesPage from './screens/VisitorResponsesPage';
+
 import './App.css';
 
 function App() {
@@ -20,9 +22,9 @@ function App() {
         <Route path="/schedule" element={<ScheduleScreen />} />
         <Route path="/valuables" element={<ValuablesScreen />} />
         <Route path="/settings" element={<SettingsScreen />} />
+        <Route path="/visitor-responses" element={<VisitorResponsesPage />} />
       </Routes>
     </Router>
   );
 }
-
 export default App;

@@ -174,7 +174,33 @@ function ValuablesScreen() {
       </div>
 
       <div className="val-section">
-        <div className="val-section-title">Valuable Items</div>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '12px',
+            marginBottom: '16px',
+            flexWrap: 'wrap'
+          }}
+        >
+          <div className="val-section-title">Valuable Items</div>
+
+          <button
+            onClick={() => navigate('/visitor-responses')}
+            style={{
+              padding: '10px 16px',
+              borderRadius: '10px',
+              border: 'none',
+              backgroundColor: '#0f172a',
+              color: '#ffffff',
+              cursor: 'pointer',
+              fontWeight: '600'
+            }}
+          >
+            View Visitor Reports
+          </button>
+        </div>
 
         {loading && (
           <div className="val-state-card">

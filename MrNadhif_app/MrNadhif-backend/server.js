@@ -12,7 +12,6 @@ const binsRouter = require('./routes/bins');
 const itemsRoutes = require('./routes/items');
 const uploadRoutes = require('./routes/upload');
 const notificationsRoutes = require('./routes/notifications');
-const visitorReportsRoutes = require('./routes/VisitorReports');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -139,7 +138,6 @@ app.use('/api/bins', binsRouter);
 app.use('/api/items', itemsRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/notifications', notificationsRoutes);
-app.use('/api/visitor-reports', visitorReportsRoutes);
 
 // PI POLLING ROUTES
 
