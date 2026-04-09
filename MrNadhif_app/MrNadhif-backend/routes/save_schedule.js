@@ -16,7 +16,7 @@ router.post('/schedule', async (req, res) => {
     const result = await pool.query(
       `INSERT INTO cleaning_schedules 
        (robot_id, start_time, geofence_json, created_at, beach_name)
-       VALUES ($1, $2, $3, NOW(), $4)
+       VALUES ($1, $2, $3, $2, $4)
        RETURNING *`,
       [1, fullStartTime, geofence, beach_name]
     );

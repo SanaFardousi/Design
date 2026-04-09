@@ -122,50 +122,97 @@ router.get('/current-session', async (req, res) => {
 
 // START actual cleaning session
 router.post('/start', async (req, res) => {
+  const client = await pool.connect();
+
   try {
-    const { beach_name } = req.body;
+    await client.query('BEGIN');
 
-    if (!beach_name) {
-      return res.status(400).json({
-        success: false,
-        message: 'beach_name is required'
-      });
-    }
+    const existingSession = await client.query(
+      `SELECT session_id
+       FROM cleaning_sessions
+       WHERE robot_id = $1 AND status IN ('in_progress', 'paused')
+       LIMIT 1`,
+      [1]
+    );
 
-    const existingSession = await getActiveSession(1);
-
-    if (existingSession) {
+    if (existingSession.rows.length > 0) {
+      await client.query('ROLLBACK');
       return res.status(400).json({
         success: false,
         message: 'Robot already has an active session'
       });
     }
 
-    await pool.query(
+    // Get the latest pending schedule
+    const scheduleResult = await client.query(
+      `SELECT schedule_id, beach_name, start_time
+       FROM cleaning_schedules
+       WHERE robot_id = $1 AND status = 'pending'
+       ORDER BY schedule_id DESC
+       LIMIT 1`,
+      [1]
+    );
+
+    if (scheduleResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        message: 'No pending schedule found'
+      });
+    }
+
+    const schedule = scheduleResult.rows[0];
+
+    // Update robot status
+    await client.query(
       `UPDATE robots
        SET status = 'cleaning'
        WHERE robot_id = $1`,
       [1]
     );
 
-    const result = await pool.query(
-      `INSERT INTO cleaning_sessions (robot_id, start_time, end_time, beach_cleaned, status)
-       VALUES ($1, NOW(), NULL, $2, $3)
+    // Insert session using the SAME scheduled start_time
+    const sessionResult = await client.query(
+      `INSERT INTO cleaning_sessions (
+         robot_id,
+         start_time,
+         end_time,
+         beach_cleaned,
+         status
+       )
+       VALUES ($1, $2, NULL, $3, $4)
        RETURNING *`,
-      [1, beach_name, 'in_progress']
+      [1, schedule.start_time, schedule.beach_name, 'in_progress']
     );
+
+    const session = sessionResult.rows[0];
+
+    // Mark schedule as started
+    await client.query(
+      `UPDATE cleaning_schedules
+       SET status = 'started',
+           started_at = start_time,
+           session_id = $1
+       WHERE schedule_id = $2`,
+      [session.session_id, schedule.schedule_id]
+    );
+
+    await client.query('COMMIT');
 
     res.json({
       success: true,
       message: 'Robot started',
-      session: result.rows[0]
+      session
     });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Error starting robot:', error);
     res.status(500).json({
       success: false,
       message: 'Server error'
     });
+  } finally {
+    client.release();
   }
 });
 
@@ -200,11 +247,6 @@ router.post('/pause', async (req, res) => {
     });
   }
 });
-
-
-
-
-
 
 // STOP session
 router.post('/stop', async (req, res) => {
@@ -315,7 +357,6 @@ router.post('/schedule', async (req, res) => {
     }
 
     const scheduleStart = `${date} ${start_time}:00`;
-
     const geofenceJson = JSON.stringify({});
 
     const result = await pool.query(
@@ -323,11 +364,12 @@ router.post('/schedule', async (req, res) => {
          robot_id,
          start_time,
          geofence_json,
+         created_at,
          beach_name,
          status,
          started_at
        )
-       VALUES ($1, $2, $3, $4, $5, $6)
+       VALUES ($1, $2::timestamp, $3, $2::timestamp, $4, $5, $6)
        RETURNING *`,
       [1, scheduleStart, geofenceJson, beach_name, 'pending', null]
     );

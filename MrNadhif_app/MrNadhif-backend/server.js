@@ -12,6 +12,7 @@ const binsRouter = require('./routes/bins');
 const itemsRoutes = require('./routes/items');
 const uploadRoutes = require('./routes/upload');
 const notificationsRoutes = require('./routes/notifications');
+const visitorReportsRoutes = require('./routes/VisitorReports');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -74,9 +75,9 @@ const checkScheduledCleanings = async () => {
         // 1. Create cleaning session
         const sessionResult = await client.query(
           `INSERT INTO cleaning_sessions (robot_id, start_time, end_time, beach_cleaned, status)
-           VALUES ($1, NOW(), NULL, $2, 'in_progress')
+           VALUES ($1, $2, NULL, $3, 'in_progress')
            RETURNING *`,
-          [schedule.robot_id, schedule.beach_name]
+          [schedule.robot_id, schedule.start_time, schedule.beach_name]
         );
         const session = sessionResult.rows[0];
 
@@ -138,10 +139,11 @@ app.use('/api/bins', binsRouter);
 app.use('/api/items', itemsRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/notifications', notificationsRoutes);
+app.use('/api/visitor-reports', visitorReportsRoutes);
 
 // PI POLLING ROUTES
 
-// Pi asks: "do you have a command for me?"
+// Pi asks: "do you have a command for me"
 app.get('/api/robot/next-command', robotAuth, async (req, res) => {
   try {
     const result = await pool.query(
