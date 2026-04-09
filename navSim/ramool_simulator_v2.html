@@ -1,0 +1,479 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+#wrap{display:flex;flex-direction:column;gap:10px;padding:10px 0}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.section-label{font-size:11px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.05em;min-width:60px}
+button{font-size:12px;padding:5px 12px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:transparent;color:var(--color-text-primary);cursor:pointer;white-space:nowrap}
+button:hover{background:var(--color-background-secondary)}
+button:active{transform:scale(.98)}
+button.active{background:var(--color-background-info);border-color:var(--color-border-info);color:var(--color-text-info)}
+button:disabled{opacity:.38;cursor:default;pointer-events:none}
+.sl-row{display:flex;align-items:center;gap:6px;flex:1;min-width:140px}
+.sl-row label{font-size:12px;color:var(--color-text-secondary);white-space:nowrap;min-width:72px}
+.sl-row input{flex:1;min-width:60px}
+.sl-row span{font-size:12px;font-weight:500;min-width:44px;text-align:right;color:var(--color-text-primary)}
+#canvas-wrap{border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-lg);overflow:hidden;background:#f0e8d0;position:relative;cursor:crosshair}
+canvas{display:block}
+#stats-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.stat{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:9px 10px}
+.stat-label{font-size:11px;color:var(--color-text-secondary);margin-bottom:3px}
+.stat-val{font-size:16px;font-weight:500;color:var(--color-text-primary);line-height:1.2}
+.stat-sub{font-size:10px;color:var(--color-text-tertiary);margin-top:2px}
+#preview-bar{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:8px 12px;font-size:12px;color:var(--color-text-secondary);line-height:1.6;min-height:32px}
+</style>
+
+<div id="wrap">
+
+<div class="row">
+  <span class="section-label">Shape</span>
+  <button id="btn-rect"   class="active" onclick="setShape('rect')">Rectangle</button>
+  <button id="btn-circle" onclick="setShape('circle')">Circle</button>
+  <button id="btn-custom" onclick="setShape('custom')">Custom (draw)</button>
+  <button id="btn-clear"  onclick="clearAll()" style="margin-left:8px">Clear</button>
+</div>
+
+<div class="row" id="size-controls">
+  <div class="sl-row"><label>Width</label><input type="range" id="sl-w" min="3" max="25" value="12" step="1" oninput="shapeW=+this.value;updateLabel('lw',this.value+'m');rebuildShape()"><span id="lw">12m</span></div>
+  <div class="sl-row"><label>Height</label><input type="range" id="sl-h" min="3" max="20" value="8"  step="1" oninput="shapeH=+this.value;updateLabel('lh',this.value+'m');rebuildShape()"><span id="lh">8m</span></div>
+</div>
+
+<div id="canvas-wrap"><canvas id="c"></canvas></div>
+
+<div class="row">
+  <span class="section-label">Robot</span>
+  <div class="sl-row"><label>Speed (m/s)</label><input type="range" id="sl-spd" min="1" max="8" value="3" step="1" oninput="robotSpeed=+this.value/10;updateLabel('lspd',(+this.value/10).toFixed(1)+' m/s');replan()"><span id="lspd">0.3 m/s</span></div>
+  <div class="sl-row"><label>Strip width</label><input type="range" id="sl-sw"  min="1" max="6" value="2" step="1" oninput="stripCells=+this.value;updateLabel('lsw',this.value+'m');replan()"><span id="lsw">2m</span></div>
+  <div class="sl-row"><label>Time limit</label><input type="range" id="sl-time" min="5" max="60" value="30" step="5" oninput="timeBudget=+this.value;updateLabel('ltm',this.value+' min');replan()"><span id="ltm">30 min</span></div>
+</div>
+
+<div id="preview-bar">Draw or select a shape to see coverage estimates.</div>
+
+<div id="stats-grid">
+  <div class="stat"><div class="stat-label">Zone area</div><div class="stat-val" id="sv-area">—</div><div class="stat-sub">square metres</div></div>
+  <div class="stat"><div class="stat-label">Strips</div><div class="stat-val" id="sv-strips">—</div><div class="stat-sub">cleaning passes</div></div>
+  <div class="stat"><div class="stat-label">Distance</div><div class="stat-val" id="sv-dist">—</div><div class="stat-sub">metres total</div></div>
+  <div class="stat"><div class="stat-label">Est. time</div><div class="stat-val" id="sv-time">—</div><div class="stat-sub">minutes</div></div>
+  <div class="stat"><div class="stat-label">Coverage</div><div class="stat-val" id="sv-cov">—</div><div class="stat-sub">of zone</div></div>
+</div>
+
+<div class="row">
+  <button id="btn-run"   onclick="startSim()" disabled>Run simulation</button>
+  <button id="btn-pause" onclick="togglePause()" disabled>Pause</button>
+  <button id="btn-reset" onclick="resetSim()" disabled>Reset</button>
+  <div class="sl-row" style="margin-left:8px"><label>Sim speed</label><input type="range" id="sl-simspd" min="1" max="30" value="8" step="1" oninput="simSpeed=+this.value;updateLabel('lss',this.value+'x')"><span id="lss">8x</span></div>
+</div>
+
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+const CELL   = 22;
+const COLS   = 28, ROWS = 20;
+canvas.width  = COLS * CELL;
+canvas.height = ROWS * CELL;
+
+// ── state ──────────────────────────────────────────────────
+let shapeMode  = 'rect';
+let shapeW     = 12, shapeH = 8;
+let robotSpeed = 0.3;
+let stripCells = 2;
+let timeBudget = 30;
+let simSpeed   = 8;
+
+let zonePolygon  = [];   // [{x,y}] in cell coords
+let customPoints = [];
+let plan         = null;
+let cleanedCells = new Set();
+let totalZoneCells = 0;
+
+let simTimer  = null;
+let simPaused = false;
+let wpIndex   = 0;
+let robotPos  = {x:0,y:0};
+let simElapsed = 0;
+
+// ── colours ────────────────────────────────────────────────
+const C = {
+  sand:'#f5e6c8', sandAlt:'#ede0b8',
+  zone:'rgba(29,158,117,.15)', zoneLine:'#1D9E75',
+  clean:'rgba(29,158,117,.42)',
+  pathH:'rgba(24,95,165,.65)', pathV:'rgba(186,117,23,.55)',
+  robot:'#185FA5', robotFill:'#dbeeff',
+  home:'#1D9E75', homeTxt:'#ffffff',
+  grid:'rgba(0,0,0,.06)', wave:'rgba(59,139,212,.2)',
+  dot:'rgba(24,95,165,.5)',
+};
+
+// ── helpers ────────────────────────────────────────────────
+function updateLabel(id,v){document.getElementById(id).textContent=v}
+function setLog(msg){document.getElementById('preview-bar').textContent=msg}
+
+function ptInPoly(px,py,poly){
+  let inside=false;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const xi=poly[i].x,yi=poly[i].y,xj=poly[j].x,yj=poly[j].y;
+    if(((yi>py)!==(yj>py))&&(px<(xj-xi)*(py-yi)/(yj-yi)+xi))inside=!inside;
+  }
+  return inside;
+}
+
+function countZoneCells(poly){
+  let n=0;
+  for(let x=0;x<COLS;x++) for(let y=0;y<ROWS;y++)
+    if(ptInPoly(x+.5,y+.5,poly)) n++;
+  return n;
+}
+
+function cellsInPoly(poly){
+  const cells=[];
+  for(let x=0;x<COLS;x++) for(let y=0;y<ROWS;y++)
+    if(ptInPoly(x+.5,y+.5,poly)) cells.push({x,y});
+  return cells;
+}
+
+// ── shape builders ─────────────────────────────────────────
+function buildRect(w,h){
+  const cx=Math.floor((COLS-w)/2), cy=Math.floor((ROWS-h)/2);
+  return [{x:cx,y:cy},{x:cx+w,y:cy},{x:cx+w,y:cy+h},{x:cx,y:cy+h}];
+}
+
+function buildCircle(r){
+  const steps=36, cx=COLS/2, cy=ROWS/2;
+  return Array.from({length:steps},(_,i)=>{
+    const a=i/steps*Math.PI*2;
+    return {x:Math.round(cx+r*Math.cos(a)), y:Math.round(cy+r*Math.sin(a))};
+  });
+}
+
+function rebuildShape(){
+  if(shapeMode==='rect'){
+    zonePolygon=buildRect(shapeW,shapeH);
+  } else if(shapeMode==='circle'){
+    const r=Math.min(shapeW,shapeH)/2;
+    zonePolygon=buildCircle(r);
+  }
+  if(shapeMode!=='custom') replan();
+  else draw();
+}
+
+function setShape(mode){
+  shapeMode=mode;
+  ['rect','circle','custom'].forEach(s=>
+    document.getElementById('btn-'+s).classList.toggle('active',s===mode));
+  document.getElementById('size-controls').style.display=mode==='custom'?'none':'flex';
+  if(mode==='custom'){
+    zonePolygon=[]; customPoints=[]; plan=null; cleanedCells=new Set();
+    document.getElementById('btn-run').disabled=true;
+    setLog('Click the grid to place zone boundary points. Click near the first point to close.');
+    resetSim(); draw(); return;
+  }
+  rebuildShape();
+}
+
+// ── planning ───────────────────────────────────────────────
+function replan(){
+  if(!zonePolygon.length) return;
+  stopSim();
+  cleanedCells=new Set();
+
+  const poly = zonePolygon;
+  const minX=Math.min(...poly.map(p=>p.x));
+  const maxX=Math.max(...poly.map(p=>p.x));
+  const minY=Math.min(...poly.map(p=>p.y));
+  const maxY=Math.max(...poly.map(p=>p.y));
+
+  const homeX=minX, homeY=maxY;
+  const zoneW=maxX-minX;
+  totalZoneCells=countZoneCells(poly);
+
+  const TURN_SEC=5.0, RETURN_BUF_SEC=60;
+  const usableSec=timeBudget*60 - RETURN_BUF_SEC;
+
+  const waypoints=[{x:homeX,y:homeY,label:'home',strip:-1,cells:[]}];
+  let timeUsed=0, stripsAdded=0, timeLimited=false;
+
+  const totalRows=maxY-minY;
+  for(let row=0; row<totalRows; row+=stripCells){
+    const cy=maxY - row - Math.floor(stripCells/2);
+    if(cy < minY) break;
+
+    const goRight=(Math.floor(row/stripCells)%2===0);
+    const xS=goRight?minX:maxX, xE=goRight?maxX:minX;
+
+    const stripSec=zoneW/robotSpeed;
+    const shiftSec=(row+stripCells<totalRows)? stripCells/robotSpeed+2*TURN_SEC : 0;
+    const retDist=Math.sqrt((xE-homeX)**2+(cy-homeY)**2);
+    const retSec=retDist/robotSpeed;
+
+    if(timeUsed+stripSec+shiftSec+retSec > usableSec){
+      timeLimited=true; break;
+    }
+
+    // Cells this strip cleans
+    const cells=[];
+    for(let sx=Math.min(xS,xE);sx<=Math.max(xS,xE);sx++){
+      for(let sy=cy-Math.floor(stripCells/2);sy<=cy+Math.floor(stripCells/2);sy++){
+        if(ptInPoly(sx+.5,sy+.5,poly)) cells.push(`${sx},${sy}`);
+      }
+    }
+
+    waypoints.push({x:xS,y:cy,label:'clean',strip:stripsAdded,cells:[]});
+    waypoints.push({x:xE,y:cy,label:'clean',strip:stripsAdded,cells});
+
+    if(row+stripCells<totalRows){
+      const ncy=maxY-(row+stripCells)-Math.floor(stripCells/2);
+      waypoints.push({x:xE,y:Math.max(minY,ncy),label:'shift',strip:stripsAdded,cells:[]});
+    }
+    timeUsed+=stripSec+shiftSec;
+    stripsAdded++;
+  }
+
+  waypoints.push({x:homeX,y:homeY,label:'return',strip:-1,cells:[]});
+
+  // Stats
+  let totalDist=0;
+  for(let i=1;i<waypoints.length;i++){
+    const a=waypoints[i-1],b=waypoints[i];
+    totalDist+=Math.sqrt((b.x-a.x)**2+(b.y-a.y)**2);
+  }
+
+  const cleanable=new Set();
+  waypoints.forEach(wp=>{ if(wp.cells) wp.cells.forEach(c=>cleanable.add(c)); });
+  const covPct=totalZoneCells>0?Math.round(cleanable.size/totalZoneCells*100):0;
+  const estMin=(totalDist/robotSpeed/60);
+  const areaSqM=totalZoneCells; // 1 cell = 1m²
+
+  plan={waypoints,stripsAdded,covPct,timeLimited,totalDist:Math.round(totalDist),
+        estMin,homeX,homeY,cleanable,areaSqM};
+
+  wpIndex=1; robotPos={x:homeX,y:homeY};
+
+  // Update stat cards
+  document.getElementById('sv-area').textContent=areaSqM;
+  document.getElementById('sv-strips').textContent=stripsAdded+(timeLimited?' ⚠':'');
+  document.getElementById('sv-dist').textContent=Math.round(totalDist)+'m';
+  document.getElementById('sv-time').textContent=estMin.toFixed(1)+' min';
+  document.getElementById('sv-cov').textContent=covPct+'%';
+
+  // Preview bar
+  const limitNote=timeLimited?' — time runs out before full coverage. Increase speed, strip width, or time limit.':'';
+  setLog(`At ${robotSpeed} m/s with ${stripCells}m strip width and ${timeBudget} min: covers ${areaSqM} m² zone in ${stripsAdded} strips, traveling ${Math.round(totalDist)}m in ~${estMin.toFixed(1)} min. ${covPct}% coverage.${limitNote}`);
+
+  document.getElementById('btn-run').disabled=false;
+  document.getElementById('s-status')||draw();
+  draw();
+}
+
+// ── simulation ─────────────────────────────────────────────
+function startSim(){
+  if(!plan||simTimer) return;
+  wpIndex=1; robotPos={x:plan.homeX,y:plan.homeY};
+  cleanedCells=new Set(); simElapsed=0; simPaused=false;
+  document.getElementById('btn-run').disabled=true;
+  document.getElementById('btn-pause').disabled=false;
+  document.getElementById('btn-reset').disabled=false;
+  simTimer=setInterval(tick,40);
+}
+
+function tick(){
+  if(simPaused||!plan) return;
+  if(wpIndex>=plan.waypoints.length){doneSim();return}
+
+  const wp=plan.waypoints[wpIndex];
+  const dx=wp.x-robotPos.x, dy=wp.y-robotPos.y;
+  const dist=Math.sqrt(dx*dx+dy*dy);
+  const step=simSpeed*0.012;
+  simElapsed+=40/1000;
+
+  // Update time display
+  const left=Math.max(0,timeBudget*60-simElapsed);
+  const mm=Math.floor(left/60),ss=Math.floor(left%60);
+  document.getElementById('sv-time').textContent=`${mm}:${ss.toString().padStart(2,'0')}`;
+
+  if(dist<=step){
+    robotPos={x:wp.x,y:wp.y};
+    if(wp.cells) wp.cells.forEach(c=>cleanedCells.add(c));
+    const cov=totalZoneCells>0?Math.round(cleanedCells.size/totalZoneCells*100):0;
+    document.getElementById('sv-cov').textContent=cov+'%';
+    if(wp.label==='return'){doneSim();return}
+    wpIndex++;
+  } else {
+    robotPos.x+=dx/dist*step;
+    robotPos.y+=dy/dist*step;
+    // Paint cells under robot
+    const rx=Math.round(robotPos.x), ry=Math.round(robotPos.y);
+    for(let sx=rx-Math.floor(stripCells/2);sx<=rx+Math.floor(stripCells/2);sx++)
+      for(let sy=ry-Math.floor(stripCells/2);sy<=ry+Math.floor(stripCells/2);sy++)
+        if(sx>=0&&sy>=0&&sx<COLS&&sy<ROWS&&ptInPoly(sx+.5,sy+.5,zonePolygon))
+          cleanedCells.add(`${sx},${sy}`);
+  }
+  draw();
+}
+
+function doneSim(){
+  stopSim();
+  const cov=totalZoneCells>0?Math.round(cleanedCells.size/totalZoneCells*100):0;
+  document.getElementById('sv-cov').textContent=cov+'%';
+  setLog(`Done! Covered ${cov}% of the zone. Try adjusting the sliders — the estimates in the stat cards update instantly without re-running.`);
+  draw();
+}
+
+function stopSim(){
+  if(simTimer){clearInterval(simTimer);simTimer=null}
+  document.getElementById('btn-run').disabled=false;
+  document.getElementById('btn-pause').disabled=true;
+  document.getElementById('btn-pause').textContent='Pause';
+}
+
+function resetSim(){
+  stopSim();
+  cleanedCells=new Set(); simElapsed=0; simPaused=false;
+  if(plan) robotPos={x:plan.homeX,y:plan.homeY};
+  document.getElementById('btn-reset').disabled=true;
+  document.getElementById('sv-cov').textContent=plan?plan.covPct+'%':'—';
+  if(plan) document.getElementById('sv-time').textContent=plan.estMin.toFixed(1)+' min';
+  draw();
+}
+
+function togglePause(){
+  simPaused=!simPaused;
+  document.getElementById('btn-pause').textContent=simPaused?'Resume':'Pause';
+}
+
+function clearAll(){
+  stopSim(); zonePolygon=[]; customPoints=[]; plan=null; cleanedCells=new Set();
+  totalZoneCells=0;
+  ['sv-area','sv-strips','sv-dist','sv-time','sv-cov'].forEach(id=>
+    document.getElementById(id).textContent='—');
+  document.getElementById('btn-run').disabled=true;
+  document.getElementById('btn-reset').disabled=true;
+  setLog('Cleared.');
+  draw();
+}
+
+// ── custom drawing ─────────────────────────────────────────
+canvas.addEventListener('click',e=>{
+  if(shapeMode!=='custom') return;
+  const r=canvas.getBoundingClientRect();
+  const cx=Math.floor((e.clientX-r.left)/CELL);
+  const cy=Math.floor((e.clientY-r.top)/CELL);
+  if(cx<0||cx>=COLS||cy<0||cy>=ROWS) return;
+  if(customPoints.length>=3){
+    const fp=customPoints[0];
+    if(Math.abs(cx-fp.x)<=1&&Math.abs(cy-fp.y)<=1){
+      zonePolygon=[...customPoints]; replan(); return;
+    }
+  }
+  customPoints.push({x:cx,y:cy});
+  if(customPoints.length>=3){
+    zonePolygon=[...customPoints];
+    setLog(`${customPoints.length} points. Click near the first point to close.`);
+    replan();
+  } else {
+    setLog(`${customPoints.length} point(s). Add at least ${3-customPoints.length} more.`);
+    draw();
+  }
+});
+
+// ── rendering ──────────────────────────────────────────────
+function draw(){
+  // Sand background with subtle chequerboard
+  for(let x=0;x<COLS;x++) for(let y=0;y<ROWS;y++){
+    ctx.fillStyle=(x+y)%2===0?C.sand:C.sandAlt;
+    ctx.fillRect(x*CELL,y*CELL,CELL,CELL);
+  }
+  // Grid lines
+  ctx.strokeStyle=C.grid; ctx.lineWidth=0.5;
+  for(let x=0;x<=COLS;x++){ctx.beginPath();ctx.moveTo(x*CELL,0);ctx.lineTo(x*CELL,canvas.height);ctx.stroke()}
+  for(let y=0;y<=ROWS;y++){ctx.beginPath();ctx.moveTo(0,y*CELL);ctx.lineTo(canvas.width,y*CELL);ctx.stroke()}
+
+  // Cleaned cells
+  cleanedCells.forEach(k=>{
+    const [cx,cy]=k.split(',').map(Number);
+    ctx.fillStyle=C.clean;
+    ctx.fillRect(cx*CELL+1,cy*CELL+1,CELL-2,CELL-2);
+  });
+
+  // Zone polygon
+  const poly=shapeMode==='custom'?customPoints:zonePolygon;
+  if(poly.length>=2){
+    ctx.beginPath();
+    ctx.moveTo(poly[0].x*CELL+CELL/2,poly[0].y*CELL+CELL/2);
+    for(let i=1;i<poly.length;i++) ctx.lineTo(poly[i].x*CELL+CELL/2,poly[i].y*CELL+CELL/2);
+    if(poly.length>=3){ctx.closePath();ctx.fillStyle=C.zone;ctx.fill()}
+    ctx.strokeStyle=C.zoneLine;ctx.lineWidth=1.5;ctx.setLineDash([4,3]);ctx.stroke();ctx.setLineDash([]);
+    // Start dot
+    ctx.beginPath();ctx.arc(poly[0].x*CELL+CELL/2,poly[0].y*CELL+CELL/2,5,0,Math.PI*2);
+    ctx.fillStyle=C.home;ctx.fill();
+  }
+
+  if(!plan){draw_labels();return}
+
+  // Plan path
+  for(let i=1;i<plan.waypoints.length;i++){
+    const a=plan.waypoints[i-1],b=plan.waypoints[i];
+    ctx.beginPath();
+    ctx.moveTo(a.x*CELL+CELL/2,a.y*CELL+CELL/2);
+    ctx.lineTo(b.x*CELL+CELL/2,b.y*CELL+CELL/2);
+    if(b.label==='shift'){ctx.strokeStyle=C.pathV;ctx.lineWidth=1.5;ctx.setLineDash([3,3])}
+    else if(b.label==='return'){ctx.strokeStyle='#BA7517';ctx.lineWidth=1.5;ctx.setLineDash([4,2])}
+    else{ctx.strokeStyle=C.pathH;ctx.lineWidth=2;ctx.setLineDash([])}
+    ctx.stroke();ctx.setLineDash([]);
+    // Arrow head
+    if(b.label==='clean'){
+      const dx=b.x-a.x,dy=b.y-a.y,len=Math.sqrt(dx*dx+dy*dy)||1;
+      const mx=(a.x+b.x)/2*CELL+CELL/2, my=(a.y+b.y)/2*CELL+CELL/2;
+      const nx=dx/len,ny=dy/len;
+      ctx.beginPath();ctx.moveTo(mx+nx*5,my+ny*5);
+      ctx.lineTo(mx-nx*4+ny*4,my-ny*4-nx*4);ctx.lineTo(mx-nx*4-ny*4,my-ny*4+nx*4);
+      ctx.fillStyle=C.pathH;ctx.fill();
+    }
+  }
+
+  // Home marker
+  const h=plan.waypoints[0];
+  ctx.beginPath();ctx.arc(h.x*CELL+CELL/2,h.y*CELL+CELL/2,7,0,Math.PI*2);
+  ctx.fillStyle=C.home;ctx.fill();
+  ctx.fillStyle=C.homeTxt;ctx.font='bold 9px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText('H',h.x*CELL+CELL/2,h.y*CELL+CELL/2);
+
+  // Robot (only during sim)
+  if(simTimer||cleanedCells.size>0){
+    const rx=robotPos.x*CELL+CELL/2, ry=robotPos.y*CELL+CELL/2;
+    ctx.beginPath();ctx.arc(rx,ry,9,0,Math.PI*2);ctx.fillStyle='rgba(24,95,165,.12)';ctx.fill();
+    ctx.beginPath();ctx.arc(rx,ry,6,0,Math.PI*2);
+    ctx.fillStyle=C.robotFill;ctx.fill();
+    ctx.strokeStyle=C.robot;ctx.lineWidth=2;ctx.stroke();
+    // direction indicator
+    if(wpIndex<plan.waypoints.length){
+      const wp=plan.waypoints[wpIndex];
+      const dx=wp.x-robotPos.x,dy=wp.y-robotPos.y,len=Math.sqrt(dx*dx+dy*dy)||1;
+      ctx.beginPath();ctx.arc(rx+dx/len*3.5,ry+dy/len*3.5,2,0,Math.PI*2);
+      ctx.fillStyle=C.robot;ctx.fill();
+    }
+  }
+
+  draw_labels();
+}
+
+function draw_labels(){
+  // Dimension labels for rect/circle
+  if(shapeMode!=='custom'&&zonePolygon.length>=2){
+    const minX=Math.min(...zonePolygon.map(p=>p.x));
+    const maxX=Math.max(...zonePolygon.map(p=>p.x));
+    const minY=Math.min(...zonePolygon.map(p=>p.y));
+    const maxY=Math.max(...zonePolygon.map(p=>p.y));
+    ctx.fillStyle='rgba(0,0,0,.45)';ctx.font='10px sans-serif';ctx.textAlign='center';
+    // Width label
+    ctx.fillText(shapeW+'m',(minX+maxX)/2*CELL+CELL/2,(minY-.2)*CELL);
+    // Height label  
+    ctx.save();ctx.translate((minX-.5)*CELL,((minY+maxY)/2)*CELL+CELL/2);
+    ctx.rotate(-Math.PI/2);ctx.fillText(shapeH+'m',0,0);ctx.restore();
+  }
+}
+
+// ── init ───────────────────────────────────────────────────
+rebuildShape();
+</script>
