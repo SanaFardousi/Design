@@ -39,7 +39,7 @@ struct BeachConfig {
 
 const BeachConfig BEACHES[] = {
     { 'F', 29.193666f, 48.115111f, 22.0f, 18.0f },  /* Fintas  */
-    { 'E', 29.1690f,   48.1100f,   50.0f, 40.0f },  /* Egaila  */
+    { 'E', 29.1815f,   48.120861f,   50.0f, 40.0f },  /* Egaila  */
     { 'S', 29.3250f,   48.0830f,   35.0f, 28.0f },  /* Salmiya */
 };
 const int NUM_BEACHES = sizeof(BEACHES) / sizeof(BEACHES[0]);
