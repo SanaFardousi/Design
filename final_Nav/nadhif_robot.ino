@@ -38,7 +38,7 @@ struct BeachConfig {
 };
 
 const BeachConfig BEACHES[] = {
-    { 'F', 29.193666f, 48.115111f, 22.0f, 18.0f },  /* Fintas  */
+    { 'F', 29.193278f, 48.114750f, 22.0f, 18.0f },  /* Fintas  */
     { 'E', 29.1815f,   48.120861f,   50.0f, 40.0f },  /* Egaila  */
     { 'S', 29.332417f,   48.093889f,   35.0f, 28.0f },  /* Salmiya */
 };
