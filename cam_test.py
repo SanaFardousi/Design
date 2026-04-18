@@ -2,15 +2,21 @@
 #  Mr Nadhif – Main Pi Controller
 #
 #  Main loop    → Camera + YOLO + annotated stream
-#  Sensor loop  → Arduino 1 serial (background thread)
-#  Motor serial → Arduino 2 (servo commands)
+#  Sensor loop  → Arduino 1 serial /dev/ttyACM0  (sensors, read-only)
+#  Motor serial → Arduino 2 serial /dev/ttyACM1  (navigation, write)
 #  POST calls   → Fire-and-forget daemon threads (never block main loop)
 #  Command poll → Checks backend every 30s for scheduled start commands
 #  Stream       → http://<pi-ip>:8080
 #
+#  Beach selection:
+#   When a start_cleaning command arrives the Pi sends ONE character
+#   to the navigation Arduino over motor_serial:
+#     'F' → Fintas   'E' → Egaila   'S' → Salmiya
+#   The Arduino is waiting for this character.
+#
 #  Ports:
 #   /dev/ttyACM0 → Arduino 1 (sensors, read)
-#   /dev/ttyACM1 → Arduino 2 (motors, write)
+#   /dev/ttyACM1 → Arduino 2 (navigation/motors, write)
 # ─────────────────────────────────────────────
 
 import cv2
@@ -49,6 +55,18 @@ STREAM_PORT = 8080
 # ── Command poll config ───────────────────────
 COMMAND_POLL_INTERVAL = 30  # seconds between backend polls
 
+# ── Beach → single char mapping ──────────────
+# Must match the BEACHES table in nadhif_robot.ino
+BEACH_CHAR = {
+    'fintas':      'F',
+    'egaila':      'E',
+    'salmiya':     'S',
+    # Add aliases here if the backend sends different spellings
+    'fintas beach': 'F',
+    'egaila beach': 'E',
+    'salmiya beach':'S',
+}
+
 # ─────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -57,14 +75,13 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 # ── Shared state ──────────────────────────────
-# GPS: placeholder coords used indoors (real GPS sends 0.0, 0.0)
 current_lat  = 29.331533936248828
 current_lng  = 48.09277661260742
 
 motor_serial = None
 
 last_detected      = {}
-DETECTION_COOLDOWN = 15  # seconds — applies to both servo and DB logging
+DETECTION_COOLDOWN = 15
 
 # ── MJPEG shared frame ────────────────────────
 latest_frame      = None
@@ -89,7 +106,7 @@ def generate_frames():
             jpeg.tobytes() +
             b'\r\n'
         )
-        time.sleep(0.033)  # ~30 fps cap
+        time.sleep(0.033)
 
 @app.route('/')
 def index():
@@ -140,10 +157,28 @@ def post(endpoint, payload):
             log.error(f"Request to {endpoint} timed out")
     threading.Thread(target=_send, daemon=True).start()
 
+# ── Send beach char to navigation Arduino ─────
+def send_beach_char(beach_name):
+    """
+    Looks up the single char for beach_name and writes it to the
+    navigation Arduino over motor_serial.  Called from command_poll_loop
+    when a start_cleaning command is received.
+    """
+    global motor_serial
+    char = BEACH_CHAR.get(beach_name.lower().strip())
+    if char is None:
+        log.error(f"Unknown beach name '{beach_name}' — cannot send char to Arduino")
+        return
+    if motor_serial and motor_serial.is_open:
+        try:
+            motor_serial.write(char.encode())
+            log.info(f"🏖  Beach char '{char}' sent to navigation Arduino for: {beach_name}")
+        except serial.SerialException as e:
+            log.error(f"Failed to send beach char: {e}")
+    else:
+        log.error("Navigation Arduino not connected — beach char not sent")
+
 # ── Command poll loop (background thread) ─────
-# Polls the backend every 30s for scheduled start_cleaning commands.
-# When one arrives: acknowledge it so the backend knows the Pi got it,
-# then log to terminal. Physical start logic (motors etc.) goes here too.
 def command_poll_loop():
     log.info("Command poll loop started — checking every 30s for scheduled commands")
     while True:
@@ -171,10 +206,13 @@ def command_poll_loop():
                     log.info(f"📡 Command acknowledged → {ack.status_code}")
 
                     if command['command_type'] == 'start_cleaning':
-                        payload = command.get('payload') or {}
-                        beach   = payload.get('beach_name', 'Unknown')
-                        log.info(f"🤖 Scheduled cleaning started — beach: {beach}")
-                        # Add any physical trigger here (e.g. motor start signal)
+                        payload    = command.get('payload') or {}
+                        beach_name = payload.get('beach_name', '')
+                        log.info(f"🤖 Scheduled cleaning started — beach: {beach_name}")
+                        # Send the single beach character to the navigation Arduino.
+                        # The Arduino is waiting silently for exactly this char.
+                        send_beach_char(beach_name)
+
             else:
                 log.warning(f"Command poll got unexpected status: {res.status_code}")
 
@@ -188,6 +226,10 @@ def command_poll_loop():
         time.sleep(COMMAND_POLL_INTERVAL)
 
 # ── Servo char map ────────────────────────────
+# These are written to motor_serial for the bin-sorting servo.
+# 'F', 'E', 'S' are intentionally absent here — they are only
+# sent once at session start by send_beach_char(), not by the
+# sensor handlers, so there is no collision risk.
 SERVO_CHAR = {
     'plastic':  'P',
     'metal':    'M',
@@ -242,18 +284,6 @@ def log_item(category, image_url=None):
         payload['image_url'] = image_url
     post('/api/items/log', payload)
 
-# ── GPS handler (commented out — indoors GPS returns 0.0, 0.0) ──────
-# def on_gps(line):
-#     global current_lat, current_lng
-#     try:
-#         coords = line[2:]
-#         lat, lng = coords.split(',')
-#         current_lat = float(lat.strip())
-#         current_lng = float(lng.strip())
-#         log.info(f"GPS stored: {current_lat}, {current_lng}")
-#     except Exception as e:
-#         log.error(f"Failed to parse GPS line '{line}': {e}")
-
 # ── Bin state ─────────────────────────────────
 bins = [
     { 'id': 1, 'label': 'Plastic',  'full': False },
@@ -303,20 +333,28 @@ def on_obstacle_detected():
 def on_obstacle_cleared():
     log.info("Obstacle cleared"); post('/api/robot/obstacle/cleared', {})
 
+# Sensor char → handler map.
+# Only single-char signals from the SENSOR Arduino (ttyACM0) land here.
+# The navigation Arduino (ttyACM1) sends multi-char CSV lines ("3,8,37,...")
+# and "OBS:", "STRIP:", "DONE" — those come back on a separate port and
+# are never routed through this map.
 CHAR_HANDLERS = {
-    'm': on_metal_inserted, 'M': on_metal_full,
+    'm': on_metal_inserted,   'M': on_metal_full,
     'p': on_plastic_inserted, 'P': on_plastic_full,
-    'v': on_valuable_inserted, 'V': on_valuable_bin_full,
+    'v': on_valuable_inserted,'V': on_valuable_bin_full,
     'g': on_general_inserted, 'G': on_general_bin_full,
-    'O': on_obstacle_detected, 'C': on_obstacle_cleared,
+    'O': on_obstacle_detected,'C': on_obstacle_cleared,
 }
 
 # ── Sensor serial loop (background thread) ────
+# Reads ONLY from /dev/ttyACM0 (sensor Arduino).
+# The navigation Arduino on /dev/ttyACM1 is written-to only;
+# its status lines are not parsed here to keep concerns separate.
 def sensor_loop():
     while True:
         try:
             with serial.Serial('/dev/ttyACM0', 9600, timeout=1) as ser:
-                log.info("Sensor Arduino connected.")
+                log.info("Sensor Arduino connected on ttyACM0.")
                 buffer = ''
                 while True:
                     if ser.in_waiting > 0:
@@ -325,14 +363,11 @@ def sensor_loop():
                         if char == '\n':
                             line = buffer.strip()
                             buffer = ''
-                            # GPS lines ignored while using placeholder coords
-                            # if line.startswith('G:'):
-                            #     on_gps(line)
                             if len(line) == 1 and line in CHAR_HANDLERS:
                                 log.info(f"Char received: '{line}'")
                                 CHAR_HANDLERS[line]()
                             elif line:
-                                log.debug(f"Received: '{line}'")
+                                log.debug(f"Sensor received: '{line}'")
                         else:
                             buffer += char
         except serial.SerialException:
@@ -353,7 +388,6 @@ CATEGORY_MAP = {
 
 VALUABLE_CATEGORIES = {'valuable', 'watches', 'wallets', 'keys', 'sunglasses'}
 
-# Colors in RGB (camera outputs RGB, no conversion done)
 CATEGORY_COLOR = {
     "plastic":    (255, 165, 0),
     "metal":      (200, 200, 200),
@@ -388,18 +422,18 @@ def draw_detections(image, detections):
 def main():
     global motor_serial, latest_frame
 
-    log.info("Connecting to motor Arduino on /dev/ttyACM1...")
+    log.info("Connecting to navigation Arduino on /dev/ttyACM1...")
     try:
         motor_serial = serial.Serial('/dev/ttyACM1', 9600, timeout=1)
-        time.sleep(2)
-        log.info("Motor Arduino connected.")
+        time.sleep(2)   # let Arduino finish booting before any chars arrive
+        log.info("Navigation Arduino connected.")
     except serial.SerialException as e:
-        log.warning(f"Motor Arduino not found: {e}")
-        log.warning("Continuing without motor control.")
+        log.warning(f"Navigation Arduino not found: {e}")
+        log.warning("Continuing without navigation control.")
 
-    threading.Thread(target=sensor_loop,        daemon=True).start()
+    threading.Thread(target=sensor_loop,         daemon=True).start()
     threading.Thread(target=start_stream_server, daemon=True).start()
-    threading.Thread(target=command_poll_loop,  daemon=True).start()
+    threading.Thread(target=command_poll_loop,   daemon=True).start()
 
     log.info(f"Live feed → http://0.0.0.0:{STREAM_PORT}  (use your Pi's IP)")
 
@@ -444,6 +478,7 @@ def main():
     log.info(f"  YOLO image size  : {YOLO_IMGSZ}px")
     log.info(f"  Command poll     : every {COMMAND_POLL_INTERVAL}s")
     log.info(f"  Stream           : http://0.0.0.0:{STREAM_PORT}")
+    log.info(f"  Beach chars      : F=Fintas  E=Egaila  S=Salmiya")
     log.info("─" * 55)
     log.info("Detection started. Press Ctrl+C to quit.")
 
@@ -542,7 +577,7 @@ def main():
                                     def _upload_and_log(fp, cat, conf):
                                         url = upload_image(fp, cat, conf)
                                         if url:
-                                            log.info(f"     ☁  Supabase upload OK  : {url}")
+                                        	log.info(f"     ☁  Supabase upload OK  : {url}")
                                         log_item(cat, image_url=url)
                                         post('/api/notifications', {
                                             'type':    'valuable_item_found',
