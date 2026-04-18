@@ -39,7 +39,7 @@
 //Stepper parameters 
 /*  Tune STEPS_PER_REV and WHEEL_CIRCUMFERENCE_M to match the robot. */
 #define STEPS_PER_REV       200        /* Full-step mode, 1.8° stepper */
-#define WHEEL_CIRCUMFERENCE_M 0.314f   /* π × 0.10 m diameter wheel   */
+#define WHEEL_CIRCUMFERENCE_M 0.314f   /* π x 0.10 m diameter wheel   */
 #define STEP_DELAY_US       800        /* µs between pulses — controls speed */
 
 //Steps needed to travel a given distance
