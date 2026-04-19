@@ -6,6 +6,7 @@
 #  Motor serial → Arduino 2 (servo commands)
 #  POST calls   → Fire-and-forget daemon threads (never block main loop)
 #  Command poll → Checks backend every 30s for scheduled start commands
+#  Telemetry    → Sends battery + GPS to backend every 15s
 #  Stream       → http://<pi-ip>:8080
 #
 #  Ports:
@@ -26,9 +27,11 @@ from flask import Flask, Response
 from picamera2 import Picamera2
 from ultralytics import YOLO
 
-# ── Backend config ────────────────────────────
-BASE_URL = 'http://192.168.8.71:5000'
-API_KEY  = 'test123'
+# ── Backend config (env-overridable) ──────────
+# Override: export NADHIF_BASE_URL=http://192.168.1.5:5000
+#           export NADHIF_API_KEY=newkey
+BASE_URL = os.environ.get('NADHIF_BASE_URL', 'http://172.20.10.6:5000')
+API_KEY  = os.environ.get('NADHIF_API_KEY',  'test123')
 
 # ── Supabase Storage config ───────────────────
 SUPABASE_URL    = 'https://mtkzevhdxczjlcndtsgi.supabase.co'
@@ -46,8 +49,10 @@ YOLO_IMGSZ       = 320  # smaller = faster inference
 # ── Stream config ─────────────────────────────
 STREAM_PORT = 8080
 
-# ── Command poll config ───────────────────────
-COMMAND_POLL_INTERVAL = 30  # seconds between backend polls
+# ── Lifecycle config ──────────────────────────
+COMMAND_POLL_INTERVAL     = 30   # seconds between /next-command polls
+TELEMETRY_INTERVAL        = 15   # seconds between /telemetry posts
+BATTERY_LEVEL_PLACEHOLDER = 100  # TODO: wire real battery sensor
 
 # ─────────────────────────────────────────────
 logging.basicConfig(
@@ -55,13 +60,15 @@ logging.basicConfig(
     format='%(asctime)s [%(levelname)s] %(message)s'
 )
 log = logging.getLogger(__name__)
+log.info(f"Backend: {BASE_URL}")
 
 # ── Shared state ──────────────────────────────
 # GPS: placeholder coords used indoors (real GPS sends 0.0, 0.0)
 current_lat  = 29.331533936248828
 current_lng  = 48.09277661260742
 
-motor_serial = None
+motor_serial      = None
+active_session_id = None   # set by command_poll_loop when a schedule fires
 
 last_detected      = {}
 DETECTION_COOLDOWN = 15  # seconds — applies to both servo and DB logging
@@ -123,7 +130,7 @@ def start_stream_server():
     _logging.getLogger('werkzeug').setLevel(_logging.ERROR)
     app.run(host='0.0.0.0', port=STREAM_PORT, threaded=True)
 
-# ── Non-blocking POST ─────────────────────────
+# ── Non-blocking POST (fire-and-forget) ───────
 def post(endpoint, payload):
     def _send():
         url = f"{BASE_URL}{endpoint}"
@@ -134,18 +141,42 @@ def post(endpoint, payload):
                 timeout=5
             )
             log.info(f"POST {endpoint} → {res.status_code}")
+            if not res.ok:
+                log.warning(f"POST {endpoint} body: {res.text[:200]}")
         except requests.exceptions.ConnectionError:
             log.error(f"Cannot reach backend at {url}")
         except requests.exceptions.Timeout:
             log.error(f"Request to {endpoint} timed out")
+        except Exception as e:
+            log.error(f"POST {endpoint} error: {e}")
     threading.Thread(target=_send, daemon=True).start()
+
+# ── Synchronous POST (for shutdown — must finish before exit) ───
+def post_sync(endpoint, payload):
+    url = f"{BASE_URL}{endpoint}"
+    try:
+        res = requests.post(
+            url, json=payload,
+            headers={ 'x-api-key': API_KEY },
+            timeout=5
+        )
+        log.info(f"POST {endpoint} → {res.status_code}")
+        if res.ok:
+            try:
+                return res.json()
+            except ValueError:
+                return None
+        return None
+    except Exception as e:
+        log.error(f"POST {endpoint} error: {e}")
+        return None
 
 # ── Command poll loop (background thread) ─────
 # Polls the backend every 30s for scheduled start_cleaning commands.
-# When one arrives: acknowledge it so the backend knows the Pi got it,
-# then log to terminal. Physical start logic (motors etc.) goes here too.
+# When one arrives: sets active_session_id so detection can log to DB.
 def command_poll_loop():
-    log.info("Command poll loop started — checking every 30s for scheduled commands")
+    global active_session_id
+    log.info(f"Command poll loop started — every {COMMAND_POLL_INTERVAL}s")
     while True:
         try:
             res = requests.get(
@@ -161,7 +192,6 @@ def command_poll_loop():
                         f"  session_id={command['session_id']}"
                         f"  schedule_id={command['schedule_id']}"
                     )
-                    # Acknowledge so backend marks it as received
                     ack = requests.post(
                         f"{BASE_URL}/api/robot/acknowledge-command",
                         json={ 'command_id': command['command_id'] },
@@ -173,8 +203,9 @@ def command_poll_loop():
                     if command['command_type'] == 'start_cleaning':
                         payload = command.get('payload') or {}
                         beach   = payload.get('beach_name', 'Unknown')
-                        log.info(f"🤖 Scheduled cleaning started — beach: {beach}")
-                        # Add any physical trigger here (e.g. motor start signal)
+                        # CRITICAL: set session so log_item/send_servo can fire
+                        active_session_id = command['session_id']
+                        log.info(f"🤖 Scheduled cleaning started — beach: {beach}  session_id={active_session_id}")
             else:
                 log.warning(f"Command poll got unexpected status: {res.status_code}")
 
@@ -187,23 +218,49 @@ def command_poll_loop():
 
         time.sleep(COMMAND_POLL_INTERVAL)
 
+# ── Telemetry thread ──────────────────────────
+def telemetry_loop(stop_event):
+    """Send battery + GPS to backend every TELEMETRY_INTERVAL seconds."""
+    log.info(f"Telemetry loop started — every {TELEMETRY_INTERVAL}s")
+    while not stop_event.is_set():
+        payload = {
+            'battery_level': BATTERY_LEVEL_PLACEHOLDER,
+            'current_lat':   current_lat,
+            'current_lng':   current_lng,
+        }
+        post('/api/robot/telemetry', payload)
+        stop_event.wait(TELEMETRY_INTERVAL)
+
 # ── Servo char map ────────────────────────────
+# All valuable subtypes (watches/wallets/keys/sunglasses/valuable) → 'V' bin.
 SERVO_CHAR = {
-    'plastic':  'P',
-    'metal':    'M',
-    'valuable': 'V',
-    'general':  'G',
+    'plastic':    'P',
+    'metal':      'M',
+    'valuable':   'V',
+    'watches':    'V',
+    'wallets':    'V',
+    'keys':       'V',
+    'sunglasses': 'V',
+    'general':    'G',
 }
 
 def send_servo(category):
-    global motor_serial
+    global motor_serial, active_session_id
+    if active_session_id is None:
+        log.debug(f"No active session; skipping servo for {category}")
+        return
     char = SERVO_CHAR.get(category)
-    if char and motor_serial and motor_serial.is_open:
+    if not char:
+        log.warning(f"No servo mapping for category '{category}'")
+        return
+    if motor_serial and motor_serial.is_open:
         try:
             motor_serial.write(char.encode())
             log.info(f"Servo command sent: '{char}' for {category}")
         except serial.SerialException as e:
             log.error(f"Failed to send servo command: {e}")
+    else:
+        log.warning(f"Motor serial not open; would send '{char}' for {category}")
 
 # ── Upload image to Supabase ──────────────────
 def upload_image(image_path, category, confidence):
@@ -232,27 +289,21 @@ def upload_image(image_path, category, confidence):
         return None
 
 # ── Log item to DB ────────────────────────────
+# Gates on active_session_id — if no session, skip. Backend also auto-fires
+# SMS/notification for valuable categories via createAlert.
 def log_item(category, image_url=None):
+    if active_session_id is None:
+        log.info(f"No active session; skipping log for {category}")
+        return
     payload = {
         'category':     category,
+        'session_id':   active_session_id,
         'location_lat': current_lat,
         'location_lng': current_lng,
     }
     if image_url:
         payload['image_url'] = image_url
     post('/api/items/log', payload)
-
-# ── GPS handler (commented out — indoors GPS returns 0.0, 0.0) ──────
-# def on_gps(line):
-#     global current_lat, current_lng
-#     try:
-#         coords = line[2:]
-#         lat, lng = coords.split(',')
-#         current_lat = float(lat.strip())
-#         current_lng = float(lng.strip())
-#         log.info(f"GPS stored: {current_lat}, {current_lng}")
-#     except Exception as e:
-#         log.error(f"Failed to parse GPS line '{line}': {e}")
 
 # ── Bin state ─────────────────────────────────
 bins = [
@@ -285,8 +336,8 @@ def on_plastic_full():
     log.warning("Plastic bin is FULL"); set_bin_full('Plastic', True); send_bins()
 
 def on_valuable_inserted():
+    # Backend auto-alerts on 'valuable' via createAlert — no manual POST.
     log.info("Valuable item detected!"); log_item('valuable'); send_servo('valuable')
-    post('/api/notifications', { 'type': 'valuable_item_found', 'message': 'Valuable item detected by bin sensor' })
 
 def on_valuable_bin_full():
     log.warning("Valuable bin is FULL"); set_bin_full('Valuable', True); send_bins()
@@ -304,11 +355,11 @@ def on_obstacle_cleared():
     log.info("Obstacle cleared"); post('/api/robot/obstacle/cleared', {})
 
 CHAR_HANDLERS = {
-    'm': on_metal_inserted, 'M': on_metal_full,
+    'm': on_metal_inserted,   'M': on_metal_full,
     'p': on_plastic_inserted, 'P': on_plastic_full,
-    'v': on_valuable_inserted, 'V': on_valuable_bin_full,
+    'v': on_valuable_inserted,'V': on_valuable_bin_full,
     'g': on_general_inserted, 'G': on_general_bin_full,
-    'O': on_obstacle_detected, 'C': on_obstacle_cleared,
+    'O': on_obstacle_detected,'C': on_obstacle_cleared,
 }
 
 # ── Sensor serial loop (background thread) ────
@@ -325,9 +376,7 @@ def sensor_loop():
                         if char == '\n':
                             line = buffer.strip()
                             buffer = ''
-                            # GPS lines ignored while using placeholder coords
-                            # if line.startswith('G:'):
-                            #     on_gps(line)
+                            # GPS lines ignored (using placeholder coords)
                             if len(line) == 1 and line in CHAR_HANDLERS:
                                 log.info(f"Char received: '{line}'")
                                 CHAR_HANDLERS[line]()
@@ -386,7 +435,7 @@ def draw_detections(image, detections):
 
 # ── Main ──────────────────────────────────────
 def main():
-    global motor_serial, latest_frame
+    global motor_serial, latest_frame, active_session_id
 
     log.info("Connecting to motor Arduino on /dev/ttyACM1...")
     try:
@@ -397,20 +446,30 @@ def main():
         log.warning(f"Motor Arduino not found: {e}")
         log.warning("Continuing without motor control.")
 
-    threading.Thread(target=sensor_loop,        daemon=True).start()
+    # Background threads (all daemon — die when main exits)
+    threading.Thread(target=sensor_loop,         daemon=True).start()
     threading.Thread(target=start_stream_server, daemon=True).start()
-    threading.Thread(target=command_poll_loop,  daemon=True).start()
+    threading.Thread(target=command_poll_loop,   daemon=True).start()
+
+    telemetry_stop = threading.Event()
+    threading.Thread(
+        target=telemetry_loop,
+        args=(telemetry_stop,),
+        daemon=True
+    ).start()
 
     log.info(f"Live feed → http://0.0.0.0:{STREAM_PORT}  (use your Pi's IP)")
 
+    # ── Camera (using still_configuration — the one that worked before) ──
     log.info("Initializing camera...")
     camera = Picamera2()
-    config = camera.create_video_configuration(
-        main={ 'size': (640, 480), 'format': 'RGB888' },
+    config = camera.create_still_configuration(
+        main={"size": (640, 480), "format": "RGB888"},
         controls={
-            'AfMode': 2, 'AfSpeed': 1,
-            'AwbEnable': True, 'AeEnable': True,
-            'FrameRate': 30,
+            "AfMode":    2,
+            "AfSpeed":   1,
+            "AwbEnable": True,
+            "AeEnable":  True,
         },
     )
     camera.configure(config)
@@ -437,15 +496,17 @@ def main():
     total_detections_count = 0
 
     log.info("─" * 55)
-    log.info(f"  Placeholder GPS  : {current_lat}, {current_lng}")
-    log.info(f"  Capture interval : {CAPTURE_INTERVAL}s")
+    log.info(f"  Placeholder GPS   : {current_lat}, {current_lng}")
+    log.info(f"  Capture interval  : {CAPTURE_INTERVAL}s")
     log.info(f"  Detection cooldown: {DETECTION_COOLDOWN}s")
-    log.info(f"  Confidence thresh: {CONFIDENCE}")
-    log.info(f"  YOLO image size  : {YOLO_IMGSZ}px")
-    log.info(f"  Command poll     : every {COMMAND_POLL_INTERVAL}s")
-    log.info(f"  Stream           : http://0.0.0.0:{STREAM_PORT}")
+    log.info(f"  Confidence thresh : {CONFIDENCE}")
+    log.info(f"  YOLO image size   : {YOLO_IMGSZ}px")
+    log.info(f"  Command poll      : every {COMMAND_POLL_INTERVAL}s")
+    log.info(f"  Telemetry         : every {TELEMETRY_INTERVAL}s")
+    log.info(f"  Stream            : http://0.0.0.0:{STREAM_PORT}")
     log.info("─" * 55)
     log.info("Detection started. Press Ctrl+C to quit.")
+    log.info("Waiting for scheduled session (or detections will be ignored)...")
 
     try:
         while True:
@@ -529,34 +590,37 @@ def main():
                                 last_detected[category] = now
                                 send_servo(category)
 
-                                tag = "💎 VALUABLE" if category in VALUABLE_CATEGORIES else "🗑  TRASH"
-                                log.info(
-                                    f"  ✅ {tag}  [{category.upper():10s}]  '{det['name']}'  {conf_pct:.1f}%"
-                                    f"  → logging to DB"
-                                )
-
-                                if category in VALUABLE_CATEGORIES:
-                                    full_path = temp_path.replace('.jpg', '_full.jpg')
-                                    cv2.imwrite(full_path, frame)
-                                    log.info(f"     📸 Saved full-res frame → uploading to Supabase...")
-                                    def _upload_and_log(fp, cat, conf):
-                                        url = upload_image(fp, cat, conf)
-                                        if url:
-                                            log.info(f"     ☁  Supabase upload OK  : {url}")
-                                        log_item(cat, image_url=url)
-                                        post('/api/notifications', {
-                                            'type':    'valuable_item_found',
-                                            'message': f'Camera detected a valuable item: {cat}'
-                                        })
-                                        try: os.remove(fp)
-                                        except: pass
-                                    threading.Thread(
-                                        target=_upload_and_log,
-                                        args=(full_path, category, det["confidence"]),
-                                        daemon=True
-                                    ).start()
+                                if active_session_id is None:
+                                    log.info(
+                                        f"  🔒 [{category.upper():10s}]  '{det['name']}'  {conf_pct:.1f}%"
+                                        f"  — no active session, not logging"
+                                    )
                                 else:
-                                    log_item(category)
+                                    tag = "💎 VALUABLE" if category in VALUABLE_CATEGORIES else "🗑  TRASH"
+                                    log.info(
+                                        f"  ✅ {tag}  [{category.upper():10s}]  '{det['name']}'  {conf_pct:.1f}%"
+                                        f"  → logging to DB"
+                                    )
+
+                                    if category in VALUABLE_CATEGORIES:
+                                        full_path = temp_path.replace('.jpg', '_full.jpg')
+                                        cv2.imwrite(full_path, frame)
+                                        log.info(f"     📸 Saved full-res frame → uploading to Supabase...")
+                                        def _upload_and_log(fp, cat, conf):
+                                            url = upload_image(fp, cat, conf)
+                                            if url:
+                                                log.info(f"     ☁  Supabase upload OK  : {url}")
+                                            # Backend auto-fires valuable_item_found alert via createAlert
+                                            log_item(cat, image_url=url)
+                                            try: os.remove(fp)
+                                            except: pass
+                                        threading.Thread(
+                                            target=_upload_and_log,
+                                            args=(full_path, category, det["confidence"]),
+                                            daemon=True
+                                        ).start()
+                                    else:
+                                        log_item(category)
 
                         current_detections.append(det)
 
@@ -579,10 +643,12 @@ def main():
 
             # HUD
             time_until_next = max(0, CAPTURE_INTERVAL - (current_time - last_capture_time))
-            cv2.putText(display, f"Next scan: {time_until_next:.1f}s",          (10, 30),  cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-            cv2.putText(display, f"Captures: {capture_count}",                  (10, 60),  cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-            cv2.putText(display, f"In frame: {len(current_detections)}",        (10, 90),  cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0),   2)
-            cv2.putText(display, f"Total detections: {total_detections_count}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0),   2)
+            session_text = f"Session: {active_session_id}" if active_session_id else "Session: (idle)"
+            cv2.putText(display, session_text,                                   (10, 30),  cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+            cv2.putText(display, f"Next scan: {time_until_next:.1f}s",          (10, 55),  cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+            cv2.putText(display, f"Captures: {capture_count}",                  (10, 80),  cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+            cv2.putText(display, f"In frame: {len(current_detections)}",        (10, 105), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0),   2)
+            cv2.putText(display, f"Total detections: {total_detections_count}", (10, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0),   2)
 
             with latest_frame_lock:
                 latest_frame = display
@@ -591,17 +657,40 @@ def main():
         log.info("Interrupted by user")
 
     finally:
-        camera.stop()
+        # Stop telemetry
+        telemetry_stop.set()
+
+        # Complete the session if one was active (synchronous — must finish before exit)
+        if active_session_id is not None:
+            log.info(f"Completing session {active_session_id} on backend...")
+            result = post_sync('/api/robot/complete-session', {})
+            if result and result.get('success'):
+                log.info(f"Session {result.get('session_id')} marked completed")
+            else:
+                log.warning("Could not complete session on backend")
+
+        try:
+            camera.stop()
+        except Exception as e:
+            log.error(f"Camera stop error: {e}")
+
         if motor_serial and motor_serial.is_open:
-            motor_serial.close()
+            try:
+                motor_serial.close()
+                log.info("Motor serial closed")
+            except Exception as e:
+                log.error(f"Motor serial close error: {e}")
+
         try:
             for f in os.listdir(temp_dir):
                 os.remove(os.path.join(temp_dir, f))
             os.rmdir(temp_dir)
         except:
             pass
+
         log.info("─" * 55)
         log.info(f"  Session ended")
+        log.info(f"  Session ID       : {active_session_id}")
         log.info(f"  Total captures   : {capture_count}")
         log.info(f"  Total detections : {total_detections_count}")
         log.info("─" * 55)

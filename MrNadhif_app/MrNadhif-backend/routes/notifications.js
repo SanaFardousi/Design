@@ -1,8 +1,10 @@
+// routes/notifications.js
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
+const robotAuth = require('../middleware/robotAuth');
 
-// GET /api/notifications
+// GET /api/notifications  (frontend polls this)
 router.get('/', async (req, res) => {
   try {
     const activeSession = await pool.query(
@@ -45,8 +47,8 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST /api/notifications
-router.post('/', async (req, res) => {
+// POST /api/notifications  (Pi-only)
+router.post('/', robotAuth, async (req, res) => {
   try {
     const { type, message } = req.body;
 

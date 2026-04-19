@@ -1,10 +1,10 @@
 {
 
-  "name": "lame3-backend",
+  "name": "mrNadhif-backend",
 
   "version": "1.0.0",
 
-  "description": "Backend for LAME3 Beach Cleaning Robot",
+  "description": "Backend for Mr. Nadhif Beach Cleaning Robot",
 
   "main": "server.js",
 

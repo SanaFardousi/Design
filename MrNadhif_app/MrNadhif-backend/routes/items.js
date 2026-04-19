@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 const createAlert = require('../utils/createAlert');
+const robotAuth = require('../middleware/robotAuth');
 
 const getActiveSession = async (robotId = 1) => {
   const result = await pool.query(
@@ -15,8 +16,8 @@ const getActiveSession = async (robotId = 1) => {
   return result.rows[0] || null;
 };
 
-// POST /api/items/log
-router.post('/log', async (req, res) => {
+// POST /api/items/log  (Pi-only)
+router.post('/log', robotAuth, async (req, res) => {
   try {
     let { category, location_lat, location_lng, image_url, status, session_id } = req.body;
 
@@ -52,9 +53,8 @@ router.post('/log', async (req, res) => {
 
     const insertedItem = result.rows[0];
     const normalizedCategory = String(insertedItem.category).toLowerCase();
-    const valuableCategories = ['sunglasses', 'watches', 'wallets'];
-
-    // Use createAlert instead of raw insert — gets duplicate check + SMS
+    const valuableCategories = ['sunglasses', 'watches', 'wallets', 'keys', 'valuable'];
+    
     if (valuableCategories.includes(normalizedCategory)) {
       await createAlert({
         type: 'valuable_item_found',
@@ -70,7 +70,7 @@ router.post('/log', async (req, res) => {
   }
 });
 
-// GET /api/items/valuables
+// GET /api/items/valuables  (frontend)
 router.get('/valuables', async (req, res) => {
   try {
     const result = await pool.query(
@@ -79,7 +79,7 @@ router.get('/valuables', async (req, res) => {
               cs.beach_cleaned
        FROM item_records ir
        LEFT JOIN cleaning_sessions cs ON ir.session_id = cs.session_id
-       WHERE LOWER(ir.category) IN ('sunglasses', 'watches', 'wallets')
+       WHERE LOWER(ir.category) IN ('sunglasses', 'watches', 'wallets', 'keys')
        ORDER BY ir.timestamp DESC`
     );
     res.json({ success: true, items: result.rows });
@@ -89,7 +89,7 @@ router.get('/valuables', async (req, res) => {
   }
 });
 
-// PUT /api/items/:itemId/status
+// PUT /api/items/:itemId/status  (frontend)
 router.put('/:itemId/status', async (req, res) => {
   try {
     const { itemId } = req.params;

@@ -3,8 +3,8 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 const createAlert = require('../utils/createAlert');
+const robotAuth = require('../middleware/robotAuth');
 
-// helper: get active session
 const getActiveSession = async (robotId = 1) => {
   const result = await pool.query(
     `SELECT session_id FROM cleaning_sessions
@@ -15,7 +15,7 @@ const getActiveSession = async (robotId = 1) => {
   return result.rows[0] || null;
 };
 
-// GET /api/bins
+// GET /api/bins  (frontend)
 router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
@@ -29,9 +29,9 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST /api/bins/status
+// POST /api/bins/status  (Pi-only)
 // Pi sends: { "bins": [{ "id": 1, "full": true }, ...] }
-router.post('/status', async (req, res) => {
+router.post('/status', robotAuth, async (req, res) => {
   const { bins } = req.body;
 
   if (!bins || !Array.isArray(bins)) {
@@ -44,20 +44,17 @@ router.post('/status', async (req, res) => {
     const activeSession = await getActiveSession(1);
 
     for (const bin of bins) {
-      // Get old status before updating
       const oldResult = await pool.query(
         `SELECT is_full, label FROM bin_status WHERE bin_id = $1`,
         [bin.id]
       );
       const oldBin = oldResult.rows[0];
 
-      // Update bin
       await pool.query(
         `UPDATE bin_status SET is_full = $1, updated_at = NOW() WHERE bin_id = $2`,
         [bin.full, bin.id]
       );
 
-      // Alert only when bin CHANGES from not full → full
       if (oldBin && oldBin.is_full === false && bin.full === true) {
         await createAlert({
           type: 'bin_full',

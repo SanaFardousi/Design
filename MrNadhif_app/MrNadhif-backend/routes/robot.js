@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 const createAlert = require('../utils/createAlert');
+const robotAuth = require('../middleware/robotAuth');
 
 const getActiveSession = async (robotId = 1) => {
   const result = await pool.query(
@@ -37,6 +38,8 @@ const insertNotificationIfNotDuplicate = async ({ type, sessionId, message }) =>
   }
   return !isDuplicate;
 };
+
+// ---------------- FRONTEND-FACING (no auth) ----------------
 
 // GET /api/robot/status
 router.get('/status', async (req, res) => {
@@ -80,7 +83,10 @@ router.get('/current-session', async (req, res) => {
   }
 });
 
-// POST /api/robot/start
+// POST /api/robot/start  (frontend button / Pi ad-hoc fallback)
+// POST /api/robot/start  (frontend "Start" button / ad-hoc start)
+// Creates a session AND a robot_commands row so the Pi's command poll
+// will pick it up the same way it picks up scheduled sessions.
 router.post('/start', async (req, res) => {
   const client = await pool.connect();
   try {
@@ -127,6 +133,23 @@ router.post('/start', async (req, res) => {
       [session.session_id, schedule.schedule_id]
     );
 
+    // NEW: insert a robot_commands row so the Pi's poll loop sees it
+    // (matches exactly what the schedule worker in server.js does)
+    await client.query(
+      `INSERT INTO robot_commands
+         (robot_id, schedule_id, session_id, command_type, payload, status)
+       VALUES ($1, $2, $3, 'start_cleaning', $4, 'pending')`,
+      [
+        1,
+        schedule.schedule_id,
+        session.session_id,
+        JSON.stringify({
+          beach_name: schedule.beach_name,
+          session_id: session.session_id
+        })
+      ]
+    );
+
     await client.query('COMMIT');
     res.json({ success: true, message: 'Robot started', session });
   } catch (error) {
@@ -170,8 +193,31 @@ router.post('/stop', async (req, res) => {
   }
 });
 
+// POST /api/robot/schedule
+router.post('/schedule', async (req, res) => {
+  try {
+    const { beach_name, date, start_time } = req.body;
+    if (!beach_name || !date || !start_time) {
+      return res.status(400).json({ success: false, message: 'Beach, date, and start time are required' });
+    }
+    const scheduleStart = `${date} ${start_time}:00`;
+    const result = await pool.query(
+      `INSERT INTO cleaning_schedules (robot_id, start_time, geofence_json, created_at, beach_name, status, started_at)
+       VALUES ($1, $2::timestamp, $3, $2::timestamp, $4, 'pending', NULL)
+       RETURNING *`,
+      [1, scheduleStart, JSON.stringify({}), beach_name]
+    );
+    res.json({ success: true, message: 'Schedule saved successfully', schedule: result.rows[0] });
+  } catch (error) {
+    console.error('Error saving schedule:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// ---------------- PI-FACING (require x-api-key) ----------------
+
 // POST /api/robot/complete-session  ← Pi calls this when done
-router.post('/complete-session', async (req, res) => {
+router.post('/complete-session', robotAuth, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -209,7 +255,7 @@ router.post('/complete-session', async (req, res) => {
 });
 
 // POST /api/robot/obstacle/detected
-router.post('/obstacle/detected', async (req, res) => {
+router.post('/obstacle/detected', robotAuth, async (req, res) => {
   try {
     const activeSession = await getActiveSession(1);
     if (!activeSession) {
@@ -228,7 +274,7 @@ router.post('/obstacle/detected', async (req, res) => {
 });
 
 // POST /api/robot/obstacle/cleared
-router.post('/obstacle/cleared', async (req, res) => {
+router.post('/obstacle/cleared', robotAuth, async (req, res) => {
   try {
     const activeSession = await getActiveSession(1);
     if (!activeSession) {
@@ -247,8 +293,7 @@ router.post('/obstacle/cleared', async (req, res) => {
 });
 
 // POST /api/robot/telemetry  ← Pi sends battery + GPS every 10-20s
-// Payload: { battery_level: 18, current_lat: 29.3, current_lng: 48.08 }
-router.post('/telemetry', async (req, res) => {
+router.post('/telemetry', robotAuth, async (req, res) => {
   try {
     const { battery_level, current_lat, current_lng } = req.body;
 
@@ -274,7 +319,6 @@ router.post('/telemetry', async (req, res) => {
 
     if (moved) lastMovementAt = new Date();
 
-    // Update robot row with new telemetry
     await pool.query(
       `UPDATE robots
        SET battery_level = $1,
@@ -288,7 +332,6 @@ router.post('/telemetry', async (req, res) => {
 
     const activeSession = await getActiveSession(1);
 
-    // Battery low alert (under 20%)
     if (battery_level != null && Number(battery_level) < 20) {
       await createAlert({
         type: 'battery_low',
@@ -297,7 +340,6 @@ router.post('/telemetry', async (req, res) => {
       });
     }
 
-    // Stuck detection: no movement for 3+ minutes during active session
     if (activeSession && lastMovementAt) {
       const diffMs = Date.now() - new Date(lastMovementAt).getTime();
       if (diffMs >= 3 * 60 * 1000) {
@@ -316,29 +358,8 @@ router.post('/telemetry', async (req, res) => {
   }
 });
 
-// POST /api/robot/schedule
-router.post('/schedule', async (req, res) => {
-  try {
-    const { beach_name, date, start_time } = req.body;
-    if (!beach_name || !date || !start_time) {
-      return res.status(400).json({ success: false, message: 'Beach, date, and start time are required' });
-    }
-    const scheduleStart = `${date} ${start_time}:00`;
-    const result = await pool.query(
-      `INSERT INTO cleaning_schedules (robot_id, start_time, geofence_json, created_at, beach_name, status, started_at)
-       VALUES ($1, $2::timestamp, $3, $2::timestamp, $4, 'pending', NULL)
-       RETURNING *`,
-      [1, scheduleStart, JSON.stringify({}), beach_name]
-    );
-    res.json({ success: true, message: 'Schedule saved successfully', schedule: result.rows[0] });
-  } catch (error) {
-    console.error('Error saving schedule:', error);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
-});
-
 // POST /api/robot/notifications
-router.post('/notifications', async (req, res) => {
+router.post('/notifications', robotAuth, async (req, res) => {
   try {
     const { type, message } = req.body;
     const activeSession = await getActiveSession(1);

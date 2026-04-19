@@ -17,7 +17,7 @@ const sendSmsAlert = async (message) => {
     const client = twilio(accountSid, authToken);
 
     await client.messages.create({
-      body: `🤖 LAME3 Robot Alert:\n${message}`,
+      body: `🤖 Mr. Nadhif Robot Alert:\n${message}`,
       from: fromNumber,
       to: toNumber
     });
