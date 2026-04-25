@@ -1,13 +1,13 @@
+// routes/upload.js
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
-const pool = require('../config/db');
 
 // Configure storage
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, '../MrNadhif-frontend/public/valuables/')
+    cb(null, '../MrNadhif-frontend/public/valuables/');
   },
   filename: function (req, file, cb) {
     // Generate unique filename
@@ -19,35 +19,31 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 // Upload image endpoint
-router.post('/image', upload.single('image'), async (req, res) => {
+// NOTE: This route ONLY saves the file and returns the URL.
+// The Pi should then call POST /api/items/log with that image_url
+// so item_records gets exactly one properly-scoped row per detection.
+router.post('/image', upload.single('image'), (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'No image uploaded' 
+      return res.status(400).json({
+        success: false,
+        message: 'No image uploaded'
       });
     }
 
     const imageUrl = `/valuables/${req.file.filename}`;
-    const { category, session_id, confidence } = req.body;
-
-    // Save to database
-    const result = await pool.query(
-      'INSERT INTO item_records (session_id, category, image_url) VALUES ($1, $2, $3) RETURNING *',
-      [session_id || null, category, imageUrl]
-    );
 
     res.json({
       success: true,
       message: 'Image uploaded successfully',
-      item: result.rows[0]
+      image_url: imageUrl
     });
 
   } catch (error) {
     console.error('Upload error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Server error' 
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
     });
   }
 });

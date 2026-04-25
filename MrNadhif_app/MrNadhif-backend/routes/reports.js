@@ -18,7 +18,7 @@ router.get('/summary', async (req, res) => {
         COUNT(*) FILTER (WHERE LOWER(ir.category) = 'plastic') AS plastic,
         COUNT(*) FILTER (WHERE LOWER(ir.category) = 'metal') AS metal,
         COUNT(*) FILTER (
-          WHERE LOWER(ir.category) IN ('sunglasses', 'watches', 'wallets')
+          WHERE LOWER(ir.category) IN ('sunglasses', 'watches', 'wallets', 'keys')
         ) AS valuables,
         COUNT(*) AS total
       FROM item_records ir
@@ -83,7 +83,7 @@ router.get('/trends', async (req, res) => {
     };
 
     const valuables = await getTrendData(
-      `LOWER(ir.category) IN ('sunglasses', 'watches', 'wallets')`
+      `LOWER(ir.category) IN ('sunglasses', 'watches', 'wallets', 'keys')`
     );
 
     const plastic = await getTrendData(
@@ -117,7 +117,7 @@ router.get('/valuables', async (req, res) => {
       FROM item_records ir
       LEFT JOIN cleaning_sessions cs
         ON ir.session_id = cs.session_id
-      WHERE LOWER(ir.category) IN ('sunglasses', 'watches', 'wallets')
+      WHERE LOWER(ir.category) IN ('sunglasses', 'watches', 'wallets', 'keys')
     `;
 
     const params = [];
@@ -163,7 +163,7 @@ router.get('/download', async (req, res) => {
         COUNT(*) FILTER (WHERE LOWER(ir.category) = 'plastic') AS plastic,
         COUNT(*) FILTER (WHERE LOWER(ir.category) = 'metal') AS metal,
         COUNT(*) FILTER (
-          WHERE LOWER(ir.category) IN ('sunglasses', 'watches', 'wallets')
+          WHERE LOWER(ir.category) IN ('sunglasses', 'watches', 'wallets', 'keys')
         ) AS valuables,
         COUNT(*) AS total
       FROM item_records ir

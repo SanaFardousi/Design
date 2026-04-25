@@ -147,6 +147,9 @@ function DashboardScreen() {
       obstacle_detected: 'Obstacle Detected',
       obstacle_cleared: 'Obstacle Cleared',
       valuable_item_found: 'Valuable Item Found',
+      bin_full: 'Bin Full',
+      battery_low: 'Battery Low',
+      robot_stuck: 'Robot Stuck',
     };
 
     return titleMap[normalized] || String(type).replace(/_/g, ' ');
@@ -159,6 +162,9 @@ function DashboardScreen() {
       obstacle_detected: <AlertTriangle size={18} />,
       obstacle_cleared: <Play size={18} />,
       valuable_item_found: <Search size={18} />,
+      bin_full: <Bell size={18} />,
+      battery_low: <Bell size={18} />,
+      robot_stuck: <AlertTriangle size={18} />,
     };
 
     return iconMap[normalized] || <Bell size={18} />;
@@ -200,6 +206,32 @@ function DashboardScreen() {
     return status;
   };
 
+  const batteryLevel =
+    robotStatus?.battery_level !== null &&
+    robotStatus?.battery_level !== undefined
+      ? `${robotStatus.battery_level}%`
+      : 'N/A';
+
+  const batterySubLabel =
+    robotStatus?.battery_level !== null &&
+    robotStatus?.battery_level !== undefined
+      ? 'Live robot battery level'
+      : 'Battery telemetry not available';
+
+  const hasRobotGps =
+    robotStatus?.current_lat !== null &&
+    robotStatus?.current_lat !== undefined &&
+    robotStatus?.current_lng !== null &&
+    robotStatus?.current_lng !== undefined;
+
+  const robotGpsText = hasRobotGps
+    ? `${robotStatus.current_lat}, ${robotStatus.current_lng}`
+    : 'Not connected yet';
+
+  const robotGpsLink = hasRobotGps
+    ? `https://www.google.com/maps?q=${robotStatus.current_lat},${robotStatus.current_lng}`
+    : null;
+
   return (
     <div className="dashboard-container">
       <div className="dashboard-header">
@@ -214,7 +246,6 @@ function DashboardScreen() {
         Welcome, {userEmail}!
       </div>
 
-      {/* Current Robot Activity */}
       <div className="section">
         <h2 className="section-title">Current Robot Activity</h2>
 
@@ -295,7 +326,18 @@ function DashboardScreen() {
               <div className="robot-activity-content">
                 <div className="robot-activity-label">Current GPS</div>
                 <div className="robot-activity-value">
-                  Not connected yet
+                  {robotGpsLink ? (
+                    <a
+                      href={robotGpsLink}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: 'inherit', textDecoration: 'underline' }}
+                    >
+                      {robotGpsText}
+                    </a>
+                  ) : (
+                    'Not connected yet'
+                  )}
                 </div>
               </div>
             </div>
@@ -303,7 +345,6 @@ function DashboardScreen() {
         )}
       </div>
 
-      {/* Operational Alerts */}
       <div className="section">
         <h2 className="section-title">Operational Alerts</h2>
 
@@ -333,7 +374,6 @@ function DashboardScreen() {
         )}
       </div>
 
-      {/* Current Status Overview */}
       <div className="section">
         <h2 className="section-title">Current Status Overview</h2>
 
@@ -341,10 +381,10 @@ function DashboardScreen() {
           <div className="status-left">
             <div className="status-label">Battery Level</div>
             <div className="status-sublabel">
-              Estimated 3 hours remaining
+              {batterySubLabel}
             </div>
           </div>
-          <div className="status-value">70%</div>
+          <div className="status-value">{batteryLevel}</div>
         </div>
 
         {bins.map((bin) => (
